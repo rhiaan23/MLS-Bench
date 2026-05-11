@@ -1,0 +1,19 @@
+{
+  "base_image": "python:3.10-slim",
+  "install_cmds": [
+    "apt-get update && apt-get install -y graphviz",
+    "sed -i 's/rich==9.13.0/rich>=13.0/' requirements.txt && pip install 'httpx<0.28' && pip install -r requirements.txt",
+    "pip install flake8",
+    "mkdir -p /opt/chatdev-macnet-data && python3 -c \"import urllib.request, gzip, shutil; urllib.request.urlretrieve('https://github.com/openai/human-eval/raw/master/data/HumanEval.jsonl.gz', '/tmp/he.gz'); f_in=gzip.open('/tmp/he.gz','rb'); f_out=open('/opt/chatdev-macnet-data/HumanEval.jsonl','wb'); shutil.copyfileobj(f_in,f_out)\""
+  ],
+  "env": {
+    "OPENAI_API_KEY": "",
+    "OPENROUTER_API_KEY": "",
+    "BASE_URL": "",
+    "HUMANEVAL_PATH": "/opt/chatdev-macnet-data/HumanEval.jsonl"
+  },
+  "use_cuda": false,
+  "writable_tmpfs": false,
+  "no_home": false,
+  "workdir": "/workspace"
+}

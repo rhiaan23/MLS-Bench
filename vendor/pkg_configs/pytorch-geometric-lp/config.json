@@ -1,0 +1,18 @@
+{
+  "base_image": "pytorch/pytorch:2.5.1-cuda12.1-cudnn9-devel",
+  "install_cmds": [
+    "apt-get update && apt-get install -y git wget && apt-get clean",
+    "pip install torch-scatter torch-sparse torch-cluster torch-spline-conv -f https://data.pyg.org/whl/torch-2.5.0+cu121.html",
+    "pip install torch-geometric ogb node2vec scikit-learn numpy pandas tqdm",
+    "python -c \"\nimport torch_geometric\nfrom torch_geometric.datasets import Planetoid\nprint('Downloading Cora...')\nPlanetoid(root='/data/Planetoid', name='Cora')\nprint('Downloading CiteSeer...')\nPlanetoid(root='/data/Planetoid', name='CiteSeer')\nprint('Planetoid datasets ready.')\n\"",
+    "python -c \"\nfrom ogb.linkproppred import PygLinkPropPredDataset\nprint('Downloading ogbl-collab...')\nPygLinkPropPredDataset(name='ogbl-collab', root='/data/OGB')\nprint('OGB dataset ready.')\n\"",
+    "python -c \"\nimport os\nchecks = ['/data/Planetoid/Cora', '/data/Planetoid/CiteSeer', '/data/OGB/ogbl_collab']\nfor c in checks:\n    assert os.path.exists(c), f'Missing: {c}'\nprint('All datasets verified.')\n\""
+  ],
+  "env": {
+    "PYTHONPATH": "/workspace/pytorch-geometric-lp:${PYTHONPATH}",
+    "DATA_DIR": "/data"
+  },
+  "use_cuda": true,
+  "writable_tmpfs": true,
+  "workdir": "/workspace"
+}

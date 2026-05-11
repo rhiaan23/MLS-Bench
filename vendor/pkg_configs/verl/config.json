@@ -1,0 +1,51 @@
+{
+  "base_image": "verlai/verl:vllm017.latest",
+  "install_cmds": [
+    "pip uninstall -y verl && pip install --no-deps -e ."
+  ],
+  "env": {
+    "VLLM_USE_V1": "1",
+    "WANDB_MODE": "disabled",
+    "NCCL_DEBUG": "WARN",
+    "HF_HOME": "/tmp/cache/hf",
+    "XDG_CACHE_HOME": "/tmp/cache",
+    "TRITON_CACHE_DIR": "/tmp/cache/triton",
+    "FLASHINFER_WORKSPACE_BASE": "/tmp",
+    "XDG_CONFIG_HOME": "/tmp/config"
+  },
+  "apptainer_flags": ["--contain"],
+  "data_deps": [
+    {
+      "name": "Qwen3-1.7B",
+      "description": "Qwen3-1.7B base model for RL fine-tuning",
+      "host_path": "{data_root}/models/Qwen3-1.7B",
+      "container_path": "/models/Qwen3-1.7B",
+      "prepare": "vendor/data_scripts/verl/prepare_models.py"
+    },
+    {
+      "name": "Qwen2.5-0.5B",
+      "description": "Qwen2.5-0.5B base model for RL fine-tuning (small-scale baseline comparisons)",
+      "host_path": "{data_root}/models/Qwen2.5-0.5B",
+      "container_path": "/models/Qwen2.5-0.5B",
+      "prepare": "vendor/data_scripts/verl/prepare_models.py"
+    },
+    {
+      "name": "Qwen2.5-1.5B",
+      "description": "Qwen2.5-1.5B base model for RL fine-tuning (2-GPU probe with offload)",
+      "host_path": "{data_root}/models/Qwen2.5-1.5B",
+      "container_path": "/models/Qwen2.5-1.5B",
+      "prepare": "vendor/data_scripts/verl/prepare_models.py"
+    },
+    {
+      "name": "verl-data",
+      "description": "Math datasets (gsm8k, math500, aime2024, deepmath, metamath, simplerl_math35) for RL training and evaluation",
+      "host_path": "{data_root}/verl-data",
+      "container_path": "/root/data",
+      "prepare": "vendor/data_scripts/verl/prepare_data.py"
+    }
+  ],
+  "use_cuda": true,
+  "writable_tmpfs": false,
+  "no_home": true,
+  "workdir": "/workspace"
+}

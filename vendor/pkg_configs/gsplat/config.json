@@ -1,0 +1,36 @@
+{
+  "base_image": "pytorch/pytorch:2.6.0-cuda12.4-cudnn9-devel",
+  "install_cmds": [
+    "apt-get -o APT::Sandbox::User=root update -q && DEBIAN_FRONTEND=noninteractive apt-get -o APT::Sandbox::User=root install -y --no-install-recommends git wget unzip build-essential && rm -rf /var/lib/apt/lists/*",
+    "pip install gsplat==1.5.3 torchmetrics lpips plyfile tqdm imageio opencv-python-headless piexif scikit-learn matplotlib tensorly 'numpy<2.0.0'",
+    "pip install git+https://github.com/rmbrualla/pycolmap@cc7ea4b7301720ac29287dbe450952511b32125e",
+    "pip install clean-fid",
+    "pip install 'numpy<2.0.0'",
+    "TORCH_CUDA_ARCH_LIST='7.0;7.5;8.0;8.6;9.0' python -c \"import torchmetrics, lpips; print('torchmetrics+lpips OK; gsplat will JIT-compile at runtime when a GPU is visible')\""
+  ],
+  "data_deps": [
+    {
+      "name": "mipnerf360",
+      "host_path": "{data_root}/gsplat_data/360_v2",
+      "container_path": "/data/360_v2",
+      "prepare": "vendor/data_scripts/gsplat/prepare_data.py",
+      "description": "Mip-NeRF 360 dataset (garden, bicycle, bonsai, stump scenes) for 3DGS evaluation."
+    },
+    {
+      "name": "gsplat_torch_cache",
+      "host_path": "{data_root}/gsplat_data/torch_cache",
+      "container_path": "/data/torch_cache",
+      "prepare": "vendor/data_scripts/gsplat/prepare_data.py",
+      "description": "Torch cache containing AlexNet weights used by torchmetrics LPIPS during 3DGS evaluation."
+    }
+  ],
+  "env": {
+    "DATA_DIR": "/data/360_v2",
+    "OUTPUT_DIR": "/tmp/output",
+    "TORCH_HOME": "/data/torch_cache"
+  },
+  "use_cuda": true,
+  "writable_tmpfs": true,
+  "no_home": true,
+  "workdir": "/workspace"
+}

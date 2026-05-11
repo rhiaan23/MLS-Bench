@@ -1,0 +1,15 @@
+{
+  "base_image": "pytorch/pytorch:2.6.0-cuda12.4-cudnn9-runtime",
+  "install_cmds": [
+    "apt-get update && apt-get install -y --no-install-recommends libgl1-mesa-glx libosmesa6 libglew-dev && rm -rf /var/lib/apt/lists/*",
+    "pip install tensordict torchrl dm-control mujoco hydra-core hydra-submitit-launcher omegaconf termcolor pandas 'gymnasium==0.29.1' 'numpy<2'",
+    "python3 -c \"import dm_control; print('dm_control OK')\"",
+    "python3 -c \"import mujoco; print('mujoco OK')\""
+  ],
+  "use_cuda": true,
+  "workdir": "/workspace",
+  "env": {
+    "MUJOCO_GL": "egl",
+    "LAZY_LEGACY_OP": "0"
+  }
+}

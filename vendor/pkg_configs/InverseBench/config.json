@@ -1,0 +1,39 @@
+{
+  "base_image": "pytorch/pytorch:2.5.1-cuda12.1-cudnn9-devel",
+  "data_deps": [
+    {
+      "name": "inversebench",
+      "host_path": "{project_root}/vendor/data/inversebench",
+      "container_path": "/data",
+      "prepare": "vendor/data_scripts/InverseBench/prepare_data.py",
+      "description": "Prepared checkpoints and test datasets for InverseBench."
+    }
+  ],
+  "install_cmds": [
+    "apt-get -o APT::Sandbox::User=root update -q && DEBIAN_FRONTEND=noninteractive apt-get -o APT::Sandbox::User=root install -y git wget unzip libnfft3-dev && rm -rf /var/lib/apt/lists/*",
+    "cd /workspace/InverseBench",
+    "pip install 'numpy<2'",
+    "pip install hydra-core omegaconf lmdb piq scipy h5py tqdm wandb requests ehtim",
+    "pip install pyNFFT2",
+    "python -c \"from pynfft import NFFT; print('pynfft imported successfully')\"",
+    "pip install sigpy || echo 'sigpy install failed, proceeding without it'"
+  ],
+  "data_bind": [
+    "{project_root}/vendor/data/inversebench/cache:/workspace/InverseBench/cache",
+    "{project_root}/vendor/data/inversebench/checkpoints:/workspace/InverseBench/checkpoints",
+    "{project_root}/vendor/data/inversebench/blackhole:/data/blackhole",
+    "{project_root}/vendor/data/inversebench/inv-scatter-test:/data/inv-scatter-test",
+    "{project_root}/vendor/data/inversebench/fwi-test:/data/fwi-test",
+    "{project_root}/vendor/data/inversebench/ffhq256:/data/ffhq256",
+    "{project_root}/vendor/data/inversebench/pip_packages_v2:/pip_packages",
+    "{project_root}/vendor/data/inversebench:/data"
+  ],
+  "env": {
+    "PYTHONPATH": "/pip_packages:/workspace/InverseBench:${PYTHONPATH}",
+    "TORCH_HOME": "/workspace/InverseBench/cache/torch"
+  },
+  "use_cuda": true,
+  "writable_tmpfs": true,
+  "no_home": true,
+  "workdir": "/workspace"
+}

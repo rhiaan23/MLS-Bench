@@ -1,0 +1,11 @@
+{
+  "base_image": "pytorch/pytorch:2.5.1-cuda12.1-cudnn9-devel",
+  "install_cmds": [
+    "pip install numpy"
+  ],
+  "env": {
+    "PYTHONPATH": "/workspace/eplb:/workspace:${PYTHONPATH}"
+  },
+  "use_cuda": false,
+  "workdir": "/workspace"
+}

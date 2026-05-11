@@ -1,0 +1,18 @@
+{
+  "base_image": "pytorch/pytorch:2.5.1-cuda12.1-cudnn9-devel",
+  "install_cmds": [
+    "apt-get -o APT::Sandbox::User=root update -q && DEBIAN_FRONTEND=noninteractive apt-get -o APT::Sandbox::User=root install -y build-essential patchelf libgl1-mesa-dev libgl1-mesa-glx libglew-dev libosmesa6-dev software-properties-common git wget && apt-get clean && rm -rf /var/lib/apt/lists/*",
+    "pip install uv --upgrade",
+    "uv pip install --system 'gymnasium[mujoco]>=0.29' 'stable-baselines3>=2.2.0' numpy scipy torch tqdm",
+    "python -c \"import gymnasium; env = gymnasium.make('HalfCheetah-v4'); env.reset(); env.close(); print('MuJoCo OK')\"",
+    "mkdir -p /workspace/expert_demos"
+  ],
+  "env": {
+    "MUJOCO_GL": "egl",
+    "PYOPENGL_PLATFORM": "egl"
+  },
+  "use_cuda": true,
+  "writable_tmpfs": true,
+  "no_home": true,
+  "workdir": "/workspace"
+}

@@ -1,0 +1,27 @@
+{
+  "base_image": "nvidia/cuda:11.8.0-cudnn8-runtime-ubuntu20.04",
+  "install_cmds": [
+    "apt-get -o APT::Sandbox::User=root update -q && DEBIAN_FRONTEND=noninteractive apt-get -o APT::Sandbox::User=root install -y python3-pip build-essential patchelf curl git libgl1-mesa-dev libgl1-mesa-glx libglew-dev libosmesa6-dev software-properties-common net-tools vim virtualenv wget xpra xserver-xorg-dev && apt-get clean && rm -rf /var/lib/apt/lists/*",
+    "ln -sf /usr/bin/python3 /usr/bin/python",
+    "mkdir -p /root/.mujoco && wget https://mujoco.org/download/mujoco210-linux-x86_64.tar.gz -O /tmp/mujoco.tar.gz && tar --no-same-owner -xf /tmp/mujoco.tar.gz -C /root/.mujoco && rm /tmp/mujoco.tar.gz",
+    "export LD_LIBRARY_PATH=/root/.mujoco/mujoco210/bin:${LD_LIBRARY_PATH}",
+    "pip install 'typing-extensions<4.6.0' 'Cython<3.0'",
+    "pip install -r requirements/requirements.txt",
+    "pip install torch==2.0.1 --index-url https://download.pytorch.org/whl/cu118",
+    "LD_LIBRARY_PATH=/root/.mujoco/mujoco210/bin:${LD_LIBRARY_PATH} python -c \"import mujoco_py\"",
+    "export MUJOCO_GL=egl",
+    "LD_LIBRARY_PATH=/root/.mujoco/mujoco210/bin:${LD_LIBRARY_PATH} MUJOCO_GL=egl python -c \"\nimport gym, d4rl\nenvs = [\n  'halfcheetah-medium-v2', 'halfcheetah-medium-replay-v2', 'halfcheetah-medium-expert-v2',\n  'hopper-medium-v2', 'hopper-medium-replay-v2', 'hopper-medium-expert-v2',\n  'walker2d-medium-v2', 'walker2d-medium-replay-v2', 'walker2d-medium-expert-v2',\n  'maze2d-large-v1', 'maze2d-medium-v1', 'maze2d-umaze-v1',\n  'pen-human-v1', 'pen-cloned-v1', 'pen-expert-v1',\n  'door-human-v1', 'door-cloned-v1', 'door-expert-v1',\n  'hammer-human-v1', 'hammer-cloned-v1', 'hammer-expert-v1',\n]\nfor name in envs:\n  try:\n    env = gym.make(name)\n    d4rl.qlearning_dataset(env)\n    print('Downloaded:', name)\n  except Exception as e:\n    print('WARN: Failed', name, e)\n\"",
+    "mkdir -p /root/.d4rl/datasets && cd /root/.d4rl/datasets && for f in pen-human-v1 pen-cloned-v1 pen-expert-v1 door-human-v1 door-cloned-v1 door-expert-v1 hammer-human-v1 hammer-cloned-v1 hammer-expert-v1; do [ -f ${f}.hdf5 ] && [ -s ${f}.hdf5 ] || wget -q http://rail.eecs.berkeley.edu/datasets/offline_rl/hand_dapg_v1/${f}.hdf5; done && ls -lh /root/.d4rl/datasets/"
+  ],
+  "env": {
+    "LD_LIBRARY_PATH": "/root/.mujoco/mujoco210/bin:${LD_LIBRARY_PATH}",
+    "MUJOCO_PY_MUJOCO_PATH": "/root/.mujoco/mujoco210",
+    "MUJOCO_GL": "osmesa",
+    "HOME": "/root"
+  },
+  "use_cuda": true,
+  "fakeroot": true,
+  "writable_tmpfs": true,
+  "no_home": true,
+  "workdir": "/workspace"
+}

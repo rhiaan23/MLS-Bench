@@ -1,0 +1,12 @@
+{
+  "base_image": "python:3.11-slim",
+  "install_cmds": [
+    "apt-get update && apt-get install -y git build-essential",
+    "pip install numpy scipy deap==1.4.1"
+  ],
+  "env": {
+    "PYTHONPATH": "/workspace:${PYTHONPATH}"
+  },
+  "use_cuda": false,
+  "workdir": "/workspace"
+}

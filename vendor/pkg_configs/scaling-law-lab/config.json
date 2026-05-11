@@ -1,0 +1,21 @@
+{
+  "base_image": "python:3.11-slim",
+  "install_cmds": [
+    "pip install --no-cache-dir numpy scipy pandas scikit-learn xgboost datasets pyarrow",
+    "python /opt/mlsbench-extra/prepare_data.py"
+  ],
+  "extra_files": [
+    {
+      "src": "{project_root}/vendor/pkg_configs/scaling-law-lab/prepare_data.py",
+      "dst": "/opt/mlsbench-extra/prepare_data.py"
+    }
+  ],
+  "env": {
+    "PYTHONPATH": "/workspace/scaling-law-lab:${PYTHONPATH}",
+    "SCALING_LAW_DATA_DIR": "/data/scaling_law"
+  },
+  "use_cuda": false,
+  "writable_tmpfs": true,
+  "no_home": true,
+  "workdir": "/workspace"
+}

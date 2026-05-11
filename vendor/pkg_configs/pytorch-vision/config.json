@@ -1,0 +1,27 @@
+{
+  "base_image": "pytorch/pytorch:2.5.1-cuda12.1-cudnn9-devel",
+  "install_cmds": [
+    "apt-get -o APT::Sandbox::User=root update -q && DEBIAN_FRONTEND=noninteractive apt-get -o APT::Sandbox::User=root install -y wget && rm -rf /var/lib/apt/lists/*",
+    "pip install torchvision==0.20.1",
+    "mkdir -p /data/cifar /data/fmnist",
+    "python -c \"import torchvision; torchvision.datasets.CIFAR10('/data/cifar', download=True); torchvision.datasets.CIFAR100('/data/cifar', download=True)\"",
+    "python -c \"import torchvision; torchvision.datasets.FashionMNIST('/data/fmnist', download=True)\"",
+    "python -c \"import torchvision; d10=torchvision.datasets.CIFAR10('/data/cifar', train=True); d100=torchvision.datasets.CIFAR100('/data/cifar', train=True); dfm=torchvision.datasets.FashionMNIST('/data/fmnist', train=True); print(f'CIFAR-10: {len(d10)}, CIFAR-100: {len(d100)}, FashionMNIST: {len(dfm)}')\""
+  ],
+  "env": {
+    "PYTHONPATH": "/workspace/pytorch-vision:${PYTHONPATH}"
+  },
+  "data_deps": [
+    {
+      "name": "pytorch-vision-data",
+      "host_path": "{data_root}/pytorch-vision",
+      "container_path": "/data",
+      "prepare": "vendor/data_scripts/pytorch-vision/prepare_data.py",
+      "description": "CIFAR-10, CIFAR-100, and FashionMNIST datasets for pytorch-vision tasks"
+    }
+  ],
+  "use_cuda": true,
+  "writable_tmpfs": true,
+  "no_home": true,
+  "workdir": "/workspace"
+}

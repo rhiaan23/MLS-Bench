@@ -1,0 +1,19 @@
+{
+  "base_image": "pytorch/pytorch:2.5.1-cuda12.1-cudnn9-devel",
+  "install_cmds": [
+    "apt-get -o APT::Sandbox::User=root update -q && DEBIAN_FRONTEND=noninteractive apt-get -o APT::Sandbox::User=root install -y --no-install-recommends wget unzip && rm -rf /var/lib/apt/lists/*",
+    "cd /workspace/BasicTS && pip install -e .",
+    "pip install tables 'gdown>=6.0.0'",
+    "gdown 'https://drive.google.com/file/d/1m8jh1z4VNMgQ49DRwywyvYYgs3G5WBsB/view?usp=sharing' -O /tmp/datasets.zip",
+    "unzip -q /tmp/datasets.zip 'datasets/METR-LA/*' 'datasets/PEMS-BAY/*' 'datasets/PEMS04/*' -d /data && rm /tmp/datasets.zip",
+    "python -c \"import os; checks = ['/data/datasets/METR-LA/train_data.npy', '/data/datasets/PEMS-BAY/train_data.npy', '/data/datasets/PEMS04/train_data.npy']; missing = [f for f in checks if not os.path.exists(f)]; assert not missing, f'Missing datasets: {missing}'; print('All 3 STF dataset directories verified')\""
+  ],
+  "env": {
+    "PYTHONPATH": "/workspace/BasicTS/src:/workspace/BasicTS:${PYTHONPATH}",
+    "HOME": "/root"
+  },
+  "use_cuda": true,
+  "writable_tmpfs": true,
+  "no_home": true,
+  "workdir": "/workspace"
+}

@@ -1,0 +1,17 @@
+{
+  "base_image": "pytorch/pytorch:2.5.1-cuda12.1-cudnn9-devel",
+  "install_cmds": [
+    "apt-get update && apt-get install -y git wget build-essential",
+    "pip install torch-geometric==2.6.1",
+    "pip install pyg_lib torch_scatter torch_sparse torch_cluster torch_spline_conv -f https://data.pyg.org/whl/torch-2.5.0+cu121.html",
+    "pip install ogb scikit-learn networkx xxhash",
+    "python -c \"from torch_geometric.datasets import Planetoid; Planetoid(root='/data/Planetoid', name='Cora'); Planetoid(root='/data/Planetoid', name='CiteSeer'); Planetoid(root='/data/Planetoid', name='PubMed'); print('Planetoid datasets downloaded.')\"",
+    "python -c \"from torch_geometric.datasets import TUDataset; TUDataset(root='/data/TUDataset', name='MUTAG'); TUDataset(root='/data/TUDataset', name='PROTEINS'); TUDataset(root='/data/TUDataset', name='NCI1'); TUDataset(root='/data/TUDataset', name='ENZYMES'); print('TU datasets downloaded.')\""
+  ],
+  "env": {
+    "PYTHONPATH": "/workspace:${PYTHONPATH}"
+  },
+  "use_cuda": true,
+  "workdir": "/workspace",
+  "writable_tmpfs": true
+}

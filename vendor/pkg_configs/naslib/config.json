@@ -1,0 +1,15 @@
+{
+  "base_image": "pytorch/pytorch:2.5.1-cuda12.1-cudnn9-devel",
+  "install_cmds": [
+    "apt-get -o APT::Sandbox::User=root update -q && DEBIAN_FRONTEND=noninteractive apt-get -o APT::Sandbox::User=root install -y git wget && rm -rf /var/lib/apt/lists/*",
+    "pip install numpy scipy",
+    "python -c \"import pickle, os; f=os.path.join('/workspace/naslib/naslib/data','nb201_all.pickle'); assert os.path.exists(f), f'Missing {f}'; d=pickle.load(open(f,'rb')); assert len(d)==15625, f'Bad data: {len(d)} archs'; print(f'NAS-Bench-201 data verified: {len(d)} architectures')\""
+  ],
+  "env": {
+    "PYTHONPATH": "/workspace/naslib:${PYTHONPATH}"
+  },
+  "use_cuda": false,
+  "writable_tmpfs": true,
+  "no_home": true,
+  "workdir": "/workspace"
+}

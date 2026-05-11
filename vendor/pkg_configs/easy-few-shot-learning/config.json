@@ -1,0 +1,46 @@
+{
+  "base_image": "pytorch/pytorch:2.5.1-cuda12.1-cudnn9-devel",
+  "install_cmds": [
+    "apt-get -o APT::Sandbox::User=root update -q && DEBIAN_FRONTEND=noninteractive apt-get -o APT::Sandbox::User=root install -y --no-install-recommends wget unzip git && rm -rf /var/lib/apt/lists/*",
+    "cd /workspace/easy-few-shot-learning && pip install -e .",
+    "pip install typer loguru pyarrow",
+    "python -c \"import easyfsl; print('easyfsl installed successfully')\"",
+    "python -c \"import torch; from easyfsl.modules import resnet12; m = resnet12(); print('ResNet12 output:', m(torch.randn(1,3,84,84)).shape); print('Package ready')\""
+  ],
+  "data_bind": [
+    "{data_root}/mini_imagenet:/data/mini_imagenet",
+    "{data_root}/CUB:/data/CUB",
+    "{data_root}/cifar_fs:/data/cifar_fs"
+  ],
+  "data_deps": [
+    {
+      "name": "mini_imagenet",
+      "host_path": "{data_root}/mini_imagenet",
+      "container_path": "/data/mini_imagenet",
+      "prepare": "vendor/pkg_configs/easy-few-shot-learning/prepare_data.py",
+      "description": "miniImageNet images (84x84) organized by class"
+    },
+    {
+      "name": "cifar_fs",
+      "host_path": "{data_root}/cifar_fs",
+      "container_path": "/data/cifar_fs",
+      "prepare": "vendor/pkg_configs/easy-few-shot-learning/prepare_data.py",
+      "description": "CIFAR-FS images and JSON split specs"
+    },
+    {
+      "name": "CUB",
+      "host_path": "{data_root}/CUB",
+      "container_path": "/data/CUB",
+      "prepare": "vendor/pkg_configs/easy-few-shot-learning/prepare_data.py",
+      "description": "CUB-200-2011 images and JSON split specs"
+    }
+  ],
+  "env": {
+    "PYTHONPATH": "/workspace/easy-few-shot-learning:${PYTHONPATH}",
+    "HOME": "/root"
+  },
+  "use_cuda": true,
+  "writable_tmpfs": true,
+  "no_home": true,
+  "workdir": "/workspace"
+}

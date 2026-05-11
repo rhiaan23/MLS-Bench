@@ -1,0 +1,25 @@
+{
+  "base_image": "pytorch/pytorch:2.6.0-cuda12.4-cudnn9-devel",
+  "install_cmds": [
+    "apt-get -o APT::Sandbox::User=root update -q && DEBIAN_FRONTEND=noninteractive apt-get -o APT::Sandbox::User=root install -y --no-install-recommends wget && rm -rf /var/lib/apt/lists/*",
+    "pip install scipy clean-fid huggingface-hub safetensors requests filelock lpips"
+  ],
+  "data_deps": [
+    {
+      "name": "diffusers_runtime_data",
+      "host_path": "{data_root}/diffusers_data",
+      "container_path": "/data",
+      "prepare": "vendor/data_scripts/diffusers-main/prepare_data.py",
+      "description": "CIFAR-10, clean-fid CIFAR stats/Inception weights, and VGG16 cache used by diffusion and VAE CV tasks."
+    }
+  ],
+  "env": {
+    "DATA_DIR": "/data/cifar10",
+    "OUTPUT_DIR": "/tmp/output",
+    "TORCH_HOME": "/data/pretrained"
+  },
+  "use_cuda": true,
+  "writable_tmpfs": true,
+  "no_home": true,
+  "workdir": "/workspace"
+}

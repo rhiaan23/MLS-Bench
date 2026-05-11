@@ -1,0 +1,28 @@
+{
+  "base_image": "pytorch/pytorch:2.5.1-cuda12.1-cudnn9-devel",
+  "data_deps": [
+    {
+      "name": "proteininvbench",
+      "host_path": "{data_root}/ProteinInvBench",
+      "container_path": "/workspace/data",
+      "prepare": "vendor/data_scripts/ProteinInvBench/prepare_data.py",
+      "description": "ProteinInvBench CATH4.2 / CATH4.3 / TS datasets from upstream GitHub release."
+    }
+  ],
+  "install_cmds": [
+    "apt-get update && apt-get install -y git build-essential || true",
+    "pip install pyg_lib torch_scatter torch_sparse torch_cluster torch_spline_conv -f https://data.pyg.org/whl/torch-2.5.0+cu121.html",
+    "pip install pytorch-lightning==1.9.0 omegaconf transformers torcheval biopython tqdm joblib scikit-learn pandas matplotlib biotite==0.37.0 fair-esm torch_geometric",
+    "pip install -e /workspace/ProteinInvBench",
+    "mkdir -p /opt/hf_cache && python -c \"from transformers import AutoTokenizer, AutoModel; AutoTokenizer.from_pretrained('facebook/esm2_t33_650M_UR50D', cache_dir='/opt/hf_cache'); AutoModel.from_pretrained('facebook/esm2_t33_650M_UR50D', cache_dir='/opt/hf_cache')\""
+  ],
+  "env": {
+    "PYTHONPATH": "/workspace/ProteinInvBench:/workspace:${PYTHONPATH}",
+    "TRANSFORMERS_CACHE": "/opt/hf_cache",
+    "HF_HOME": "/opt/hf_cache",
+    "HF_HUB_OFFLINE": "1",
+    "MPLBACKEND": "Agg"
+  },
+  "use_cuda": true,
+  "workdir": "/workspace"
+}

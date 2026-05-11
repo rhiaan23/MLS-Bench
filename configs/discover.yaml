@@ -1,0 +1,20 @@
+# Discover defaults for MLS-Bench.
+# Use with:
+#   mlsbench agent <task> --agent-type discover --model <model> \
+#     --config configs/react.yaml --discover-config configs/discover.yaml
+
+num_epochs: 50
+group_size: 64
+groups_per_batch: 8
+phase1_max_tokens: 64000
+kl_penalty_coef: 0.1
+learning_rate: 4e-5
+lora_rank: 32
+save_every: 2
+max_actions_per_episode: 8
+edit_format_penalty: 0.0
+num_cpus_per_task: 0
+eval_timeout: 1000
+renderer_name: gpt_oss_high_reasoning
+wandb_project: null
+

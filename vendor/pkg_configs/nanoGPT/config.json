@@ -1,0 +1,87 @@
+{
+  "base_image": "pytorch/pytorch:2.5.1-cuda12.1-cudnn9-devel",
+  "install_cmds": [
+    "apt-get -o APT::Sandbox::User=root update -q && DEBIAN_FRONTEND=noninteractive apt-get -o APT::Sandbox::User=root install -y git wget unzip && rm -rf /var/lib/apt/lists/*",
+    "pip install tiktoken numpy einops safetensors huggingface_hub transformers accelerate",
+    "pip install flash-linear-attention",
+    "pip install --no-cache-dir 'datasets<3.0'",
+    "pip install --no-cache-dir 'lm-eval>=0.4.0'",
+    "pip install --no-cache-dir torch==2.6.0 --index-url https://download.pytorch.org/whl/cu124",
+    "pip install --no-cache-dir --force-reinstall triton==3.2.0",
+    "CUDA_HOME=/usr/local/cuda TORCH_CUDA_ARCH_LIST='8.0;9.0' CXXFLAGS='-D_GLIBCXX_USE_CXX11_ABI=0' pip install --no-build-isolation causal-conv1d==1.6.1",
+    "CUDA_HOME=/usr/local/cuda TORCH_CUDA_ARCH_LIST='8.0;9.0' CXXFLAGS='-D_GLIBCXX_USE_CXX11_ABI=0' pip install --no-build-isolation --no-deps mamba-ssm==2.3.1",
+    "pip install --no-cache-dir einops",
+    "python -c \"from causal_conv1d import causal_conv1d_fn; print('causal_conv1d OK')\"",
+    "pip install --no-cache-dir --force-reinstall nvidia-nccl-cu12==2.21.5",
+    "python -c \"import ctypes, glob; path=glob.glob('/opt/conda/lib/python*/site-packages/nvidia/nccl/lib/libnccl.so.2')[0]; v=ctypes.c_int(); ctypes.CDLL(path).ncclGetVersion(ctypes.byref(v)); assert v.value == 22105, f'Expected NCCL 2.21.5 but got {v.value}'\"",
+    "python -c \"import triton; assert triton.__version__ == '3.2.0', f'Expected triton 3.2.0 but got {triton.__version__}'\"",
+    "python -c \"import fla; print('FLA imported successfully')\"",
+    "python -c \"import tiktoken; tiktoken.get_encoding('gpt2')\"",
+    "mkdir -p /data/climbmix /data/eval /data/lm-eval-datasets"
+  ],
+  "local_install_cmds": [
+    "pip install tiktoken numpy einops safetensors huggingface_hub transformers accelerate",
+    "pip install --no-build-isolation --no-deps {project_root}/vendor/external_packages/flash-linear-attention",
+    "pip install --no-cache-dir 'datasets<3.0'",
+    "pip install --no-cache-dir 'lm-eval>=0.4.0'",
+    "pip install --no-cache-dir --force-reinstall triton==3.2.0",
+    "pip install --no-cache-dir --force-reinstall nvidia-nccl-cu12==2.21.5",
+    "python -c \"import ctypes; v=ctypes.c_int(); ctypes.CDLL('libnccl.so.2').ncclGetVersion(ctypes.byref(v)); assert v.value == 22105, f'Expected NCCL 2.21.5 but got {v.value}'\"",
+    "python -c \"import triton; assert triton.__version__ == '3.2.0', f'Expected triton 3.2.0 but got {triton.__version__}'\"",
+    "python -c \"import fla; print('FLA imported successfully')\"",
+    "python -c \"import tiktoken; tiktoken.get_encoding('gpt2')\"",
+    "mkdir -p {data_root}/climbmix {data_root}/eval {data_root}/lm-eval-datasets"
+  ],
+  "host_data_prepare_requirements": [
+    "datasets<3.0",
+    "lm-eval>=0.4.0",
+    "tiktoken",
+    "huggingface_hub",
+    "numpy"
+  ],
+  "env": {
+    "DATA_DIR": "/data/climbmix",
+    "EVAL_DIR": "/data/eval",
+    "PYTHONPATH": "/workspace/nanoGPT:${PYTHONPATH}",
+    "TRITON_CACHE_DIR": "/tmp/triton_cache"
+  },
+  "data_deps": [
+    {
+      "name": "climbmix",
+      "description": "ClimbMix tokenized training data (~58GB)",
+      "host_path": "{data_root}/climbmix",
+      "container_path": "/data/climbmix",
+      "ready_files": [
+        "{data_root}/climbmix/train.bin",
+        "{data_root}/climbmix/val.bin"
+      ],
+      "prepare": "vendor/data_scripts/nanoGPT/prepare_climbmix.py"
+    },
+    {
+      "name": "eval",
+      "description": "Evaluation datasets: WikiText-2/103, LAMBADA (~2MB)",
+      "host_path": "{data_root}/eval",
+      "container_path": "/data/eval",
+      "ready_files": [
+        "{data_root}/eval/wikitext2.bin",
+        "{data_root}/eval/wikitext103.bin",
+        "{data_root}/eval/lambada.bin"
+      ],
+      "prepare": "vendor/data_scripts/nanoGPT/prepare_eval.py"
+    },
+    {
+      "name": "lm-eval-datasets",
+      "description": "Pre-downloaded HF datasets for lm-eval (hellaswag, arc, piqa, winogrande, ~200MB)",
+      "host_path": "{data_root}/lm-eval-datasets",
+      "container_path": "/data/lm-eval-datasets",
+      "ready_files": [
+        "{data_root}/lm-eval-datasets/.complete"
+      ],
+      "prepare": "vendor/data_scripts/lm-evaluation-harness/prepare_datasets.py"
+    }
+  ],
+  "use_cuda": true,
+  "writable_tmpfs": true,
+  "no_home": true,
+  "workdir": "/workspace"
+}

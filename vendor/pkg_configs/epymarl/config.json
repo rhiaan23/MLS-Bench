@@ -1,0 +1,15 @@
+{
+  "base_image": "pytorch/pytorch:2.4.1-cuda12.4-cudnn9-runtime",
+  "install_cmds": [
+    "apt-get update && apt-get install -y --no-install-recommends libspatialindex-dev git && rm -rf /var/lib/apt/lists/*",
+    "pip install sacred pyyaml gymnasium tensorboard-logger 'pettingzoo[mpe]' pygame",
+    "pip install 'Rtree==1.0.0' scikit-learn",
+    "pip install git+https://github.com/uoe-agents/smaclite.git"
+  ],
+  "env": {
+    "PYTHONPATH": "/workspace/epymarl/src:${PYTHONPATH}",
+    "WANDB_MODE": "disabled"
+  },
+  "use_cuda": true,
+  "workdir": "/workspace"
+}

@@ -1,0 +1,13 @@
+{
+  "base_image": "pytorch/pytorch:2.5.1-cuda12.1-cudnn9-devel",
+  "install_cmds": [
+    "pip install --no-cache-dir numpy scipy torchvision tqdm",
+    "python -c \"import torchvision; torchvision.datasets.MNIST('/workspace/data', download=True); torchvision.datasets.FashionMNIST('/workspace/data', download=True); torchvision.datasets.CIFAR10('/workspace/data', download=True)\""
+  ],
+  "env": {
+    "PYTHONPATH": "/workspace/PBB:/workspace:${PYTHONPATH}",
+    "DATA_DIR": "/workspace/data"
+  },
+  "use_cuda": true,
+  "workdir": "/workspace"
+}

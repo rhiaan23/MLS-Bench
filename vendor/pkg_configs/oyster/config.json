@@ -1,0 +1,33 @@
+{
+  "base_image": "pytorch/pytorch:2.2.0-cuda12.1-cudnn8-devel",
+  "install_cmds": [
+    "apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends git build-essential libosmesa6-dev libgl1-mesa-glx libglew-dev patchelf && rm -rf /var/lib/apt/lists/* || true",
+    "conda install -y -c conda-forge 'libstdcxx-ng>=12' mesalib glew patchelf || (rm -f /opt/conda/lib/libstdc++.so.6 /opt/conda/lib/libstdc++.so && ln -sf /lib/x86_64-linux-gnu/libstdc++.so.6 /opt/conda/lib/libstdc++.so.6)",
+    "mkdir -p /root/.mujoco && python -c \"import urllib.request; urllib.request.urlretrieve('https://github.com/deepmind/mujoco/releases/download/2.1.0/mujoco210-linux-x86_64.tar.gz', '/tmp/mujoco.tar.gz')\" && tar --no-same-owner -xzf /tmp/mujoco.tar.gz -C /root/.mujoco/ && rm /tmp/mujoco.tar.gz && ls -la /root/.mujoco/mujoco210/bin/libmujoco210.so",
+    "export MUJOCO_PY_MUJOCO_PATH=/root/.mujoco/mujoco210 && export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/root/.mujoco/mujoco210/bin && pip install 'cython<3' 'typing-extensions<4.6' mujoco-py==2.1.2.14",
+    "pip install gym==0.25.2 click gtimer numpy mujoco==2.3.7 python-dateutil joblib",
+    "MUJOCO_PY_MUJOCO_PATH=/root/.mujoco/mujoco210 LD_LIBRARY_PATH=/root/.mujoco/mujoco210/bin:${LD_LIBRARY_PATH} CPATH=/opt/conda/include:${CPATH:-} LIBRARY_PATH=/opt/conda/lib:${LIBRARY_PATH:-} python -c 'import mujoco_py; print(\"mujoco_py cython ext built:\", mujoco_py.__file__)'"
+  ],
+  "local_install_cmds": [
+    "conda install -y -c conda-forge patchelf glew mesalib",
+    "mkdir -p $HOME/.mujoco && wget -q https://github.com/deepmind/mujoco/releases/download/2.1.0/mujoco210-linux-x86_64.tar.gz -O /tmp/mujoco.tar.gz && tar xzf /tmp/mujoco.tar.gz -C $HOME/.mujoco/ && rm /tmp/mujoco.tar.gz",
+    "MUJOCO_PY_MUJOCO_PATH=$HOME/.mujoco/mujoco210 LD_LIBRARY_PATH=$HOME/.mujoco/mujoco210/bin:${LD_LIBRARY_PATH} pip install 'cython<3' mujoco-py==2.1.2.14",
+    "pip install torch==2.5.1 --index-url https://download.pytorch.org/whl/cu121",
+    "pip install gym==0.25.2 click gtimer numpy mujoco==2.3.7 python-dateutil joblib"
+  ],
+  "env": {
+    "MUJOCO_PY_MUJOCO_PATH": "/root/.mujoco/mujoco210",
+    "LD_LIBRARY_PATH": "/root/.mujoco/mujoco210/bin:/usr/local/nvidia/lib64:${LD_LIBRARY_PATH}",
+    "MUJOCO_GL": "osmesa",
+    "PYTHONPATH": "/workspace/oyster:${PYTHONPATH}",
+    "HOME": "/root"
+  },
+  "local_env": {
+    "MUJOCO_PY_MUJOCO_PATH": "$HOME/.mujoco/mujoco210",
+    "LD_LIBRARY_PATH": "$HOME/.mujoco/mujoco210/bin:/usr/lib/nvidia:/usr/lib/x86_64-linux-gnu:${LD_LIBRARY_PATH}",
+    "MUJOCO_GL": "egl"
+  },
+  "use_cuda": true,
+  "writable_tmpfs": true,
+  "workdir": "/workspace"
+}

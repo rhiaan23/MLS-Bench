@@ -1,0 +1,32 @@
+{
+  "base_image": "pytorch/pytorch:2.5.1-cuda12.1-cudnn9-devel",
+  "data_deps": [
+    {
+      "name": "climax-era5",
+      "host_path": "{data_root}/ClimaX/era5_5.625deg",
+      "container_path": "/data/era5_5.625deg",
+      "prepare": "vendor/data_scripts/ClimaX/prepare_data.py",
+      "description": "ERA5 5.625deg from WeatherBench2 zarr, sharded npz; ClimaX 5.625deg checkpoint (best-effort)."
+    },
+    {
+      "name": "climax-weights",
+      "host_path": "{data_root}/ClimaX/climax_weights",
+      "container_path": "/data/climax_weights",
+      "prepare": "vendor/data_scripts/ClimaX/prepare_data.py",
+      "description": "Pretrained ClimaX 5.625deg checkpoint (optional)."
+    }
+  ],
+  "install_cmds": [
+    "apt-get -o APT::Sandbox::User=root update -q && DEBIAN_FRONTEND=noninteractive apt-get -o APT::Sandbox::User=root install -y --no-install-recommends wget git curl && rm -rf /var/lib/apt/lists/*",
+    "pip install timm==0.9.16 scipy torchdata pytorch-lightning==2.1.4 jsonargparse[omegaconf] torchvision xarray gcsfs zarr",
+    "pip install -e /workspace/ClimaX"
+  ],
+  "host_data_prepare_requirements": ["xarray", "zarr", "gcsfs", "numpy"],
+  "env": {
+    "PYTHONPATH": "/workspace/ClimaX/src:${PYTHONPATH}",
+    "DATA_DIR": "/data/era5_5.625deg",
+    "WEIGHT_DIR": "/data/climax_weights"
+  },
+  "use_cuda": true,
+  "workdir": "/workspace"
+}

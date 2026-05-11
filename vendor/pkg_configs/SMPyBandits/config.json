@@ -1,0 +1,10 @@
+{
+  "base_image": "python:3.10-slim",
+  "install_cmds": [
+    "pip install numpy scipy matplotlib"
+  ],
+  "use_cuda": false,
+  "writable_tmpfs": true,
+  "no_home": true,
+  "workdir": "/workspace"
+}

@@ -1,0 +1,40 @@
+{
+  "base_image": "python:3.11",
+  "install_cmds": [
+    "pip install scikit-learn==1.5.2 numpy scipy joblib pandas umap-learn==0.5.7 trimap==1.1.4 pacmap==0.7.3 numba llvmlite pynndescent econml pyod aif360==0.6.1",
+    "mkdir -p /data/adbench && python -c \"import urllib.request, os; base='https://raw.githubusercontent.com/Minqi824/ADBench/main/adbench/datasets/Classical'; [urllib.request.urlretrieve(f'{base}/{f}', f'/data/adbench/{f}') for f in ['6_cardio.npz','38_thyroid.npz','30_satellite.npz','32_shuttle.npz']]\"",
+    "python -c \"from sklearn.datasets import load_breast_cancer, load_diabetes, fetch_california_housing; load_breast_cancer(); load_diabetes(); fetch_california_housing(data_home='/data/sklearn')\"",
+    "python -c \"from sklearn.datasets import fetch_20newsgroups; fetch_20newsgroups(subset='all', data_home='/data/sklearn')\"",
+    "python -c \"from sklearn.datasets import fetch_openml; fetch_openml('mnist_784', version=1, data_home='/data/sklearn', parser='auto')\"",
+    "python -c \"from sklearn.datasets import fetch_openml; fetch_openml('madelon', version=1, data_home='/data/sklearn', parser='auto')\"",
+    "python -c \"from sklearn.datasets import fetch_openml; fetch_openml('Fashion-MNIST', version=1, data_home='/data/sklearn', parser='auto')\"",
+    "python -c \"import sklearn; print(f'scikit-learn {sklearn.__version__} installed successfully')\""
+  ],
+  "local_install_cmds": [
+    "pip install scikit-learn==1.5.2 numpy scipy joblib pandas umap-learn==0.5.7 trimap==1.1.4 pacmap==0.7.3 numba llvmlite pynndescent econml pyod aif360==0.6.1",
+    "mkdir -p /data/adbench && python -c \"import urllib.request, os; base='https://raw.githubusercontent.com/Minqi824/ADBench/main/adbench/datasets/Classical'; [urllib.request.urlretrieve(f'{base}/{f}', f'/data/adbench/{f}') for f in ['6_cardio.npz','38_thyroid.npz','30_satellite.npz','32_shuttle.npz']]\"",
+    "cd /tmp && python -c \"from sklearn.datasets import load_breast_cancer, load_diabetes, fetch_california_housing; load_breast_cancer(); load_diabetes(); fetch_california_housing(data_home='/data/sklearn')\"",
+    "cd /tmp && python -c \"from sklearn.datasets import fetch_20newsgroups; fetch_20newsgroups(subset='all', data_home='/data/sklearn')\"",
+    "cd /tmp && python -c \"from sklearn.datasets import fetch_openml; fetch_openml('mnist_784', version=1, data_home='/data/sklearn', parser='auto')\"",
+    "cd /tmp && python -c \"from sklearn.datasets import fetch_openml; fetch_openml('madelon', version=1, data_home='/data/sklearn', parser='auto')\"",
+    "cd /tmp && python -c \"from sklearn.datasets import fetch_openml; fetch_openml('Fashion-MNIST', version=1, data_home='/data/sklearn', parser='auto')\"",
+    "cd /tmp && python -c \"import sklearn; print(f'scikit-learn {sklearn.__version__} installed successfully')\""
+  ],
+  "env": {
+    "SKLEARN_DATA_HOME": "/data/sklearn"
+  },
+  "data_deps": [
+    {
+      "name": "sklearn_datasets",
+      "host_path": "{data_root}/sklearn",
+      "container_path": "/data/sklearn",
+      "prepare": "vendor/data_scripts/scikit-learn/prepare_data.py",
+      "description": "Sklearn/OpenML datasets plus AIF360 fairness datasets (adult, compas, law_school)"
+    }
+  ],
+  "data_bind": "{data_root}:/data",
+  "use_cuda": false,
+  "writable_tmpfs": true,
+  "no_home": true,
+  "workdir": "/workspace"
+}

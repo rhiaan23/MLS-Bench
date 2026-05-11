@@ -1,0 +1,22 @@
+{
+  "base_image": "python:3.11-slim",
+  "install_cmds": [
+    "pip install torch --index-url https://download.pytorch.org/whl/cpu",
+    "pip install openai httpx tenacity termcolor fastapi uvicorn requests tqdm pyyaml pyarrow slowapi 'huggingface_hub[cli]' psutil transformers accelerate sentencepiece",
+    "cd server && pip install -r requirements.txt && cd ..",
+    "mkdir -p {data_root}/stabletoolbench/server_data && if [ ! -d {data_root}/stabletoolbench/server_data/tools ]; then cd server && python -c \"from huggingface_hub import snapshot_download; snapshot_download('stabletoolbench/Cache', repo_type='dataset', local_dir='cache_download')\" && python -c \"import zipfile; zipfile.ZipFile('cache_download/server_cache.zip').extractall('{data_root}/stabletoolbench/server_data')\" && cd ..; fi"
+  ],
+  "data_bind": "{data_root}/stabletoolbench/server_data:/data/stabletoolbench/server_data",
+  "env": {
+    "SERVICE_URL": "http://localhost:18080/virtual",
+    "PYTHONPATH": "./:/workspace/stabletoolbench/toolbench/inference",
+    "TOOL_SERVER_DATA_DIR": "/data/stabletoolbench/server_data"
+  },
+  "local_env": {
+    "TOOL_SERVER_DATA_DIR": "{data_root}/stabletoolbench/server_data"
+  },
+  "use_cuda": false,
+  "writable_tmpfs": false,
+  "no_home": false,
+  "workdir": "/workspace"
+}

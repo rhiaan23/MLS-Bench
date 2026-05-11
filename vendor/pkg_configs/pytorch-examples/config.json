@@ -1,0 +1,10 @@
+{
+  "base_image": "pytorch/pytorch:2.4.1-cuda12.4-cudnn9-runtime",
+  "install_cmds": [
+    "pip install torchvision",
+    "python3 -c \"import os; os.makedirs('/data/mnist/MNIST/raw', exist_ok=True); os.makedirs('/data/mnist/MNIST/processed', exist_ok=True); print('MNIST stub data prepared')\""
+  ],
+  "use_cuda": true,
+  "workdir": "/workspace",
+  "env": {}
+}

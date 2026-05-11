@@ -1,0 +1,43 @@
+{
+  "base_image": "pytorch/pytorch:2.5.1-cuda12.1-cudnn9-devel",
+  "install_cmds": [
+    "apt-get -o APT::Sandbox::User=root update -q && DEBIAN_FRONTEND=noninteractive apt-get -o APT::Sandbox::User=root install -y git wget && rm -rf /var/lib/apt/lists/*",
+    "pip install --no-cache-dir --upgrade pip packaging wheel setuptools",
+    "pip install --no-cache-dir numpy pyyaml 'transformers>=4.46,<4.49' accelerate sentencepiece datasets",
+    "[ -d /workspace/dLLM-cache ] && pip install --no-cache-dir -e /workspace/dLLM-cache || true"
+  ],
+  "env": {
+    "PYTHONPATH": "/workspace/dLLM-cache:${PYTHONPATH}",
+    "HF_HOME": "/data/huggingface",
+    "TRANSFORMERS_CACHE": "/data/huggingface/transformers",
+    "HF_DATASETS_CACHE": "/data/huggingface/datasets",
+    "TORCH_HOME": "/data/huggingface/torch",
+    "XDG_CACHE_HOME": "/data/huggingface",
+    "LLADA_MODEL_DIR": "/data/LLaDA-8B-Instruct",
+    "HF_HUB_OFFLINE": "1",
+    "TRANSFORMERS_OFFLINE": "1",
+    "HF_DATASETS_OFFLINE": "1"
+  },
+  "data_bind": [
+    "{data_root}/huggingface_cache:/data/huggingface"
+  ],
+  "data_deps": [
+    {
+      "name": "LLaDA-8B-Instruct",
+      "description": "LLaDA-8B-Instruct weights (~16GB)",
+      "host_path": "{data_root}/LLaDA-8B-Instruct",
+      "container_path": "/data/LLaDA-8B-Instruct",
+      "prepare": "vendor/data_scripts/dLLM-cache/prepare_llada_instruct.py"
+    },
+    {
+      "name": "dlm-dkv-hf-datasets",
+      "description": "HF datasets for dlm-dkv-policy: MATH-500, HumanEval, ARC-Challenge",
+      "host_path": "{data_root}/huggingface_cache/.dlm-dkv-datasets-ready",
+      "container_path": "/data/huggingface/.dlm-dkv-datasets-ready",
+      "prepare": "vendor/data_scripts/dLLM-cache/prepare_hf_datasets.py"
+    }
+  ],
+  "use_cuda": true,
+  "writable_tmpfs": true,
+  "workdir": "/workspace"
+}

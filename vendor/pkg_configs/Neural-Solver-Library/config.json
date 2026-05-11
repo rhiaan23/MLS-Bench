@@ -1,0 +1,26 @@
+{
+  "base_image": "pytorch/pytorch:2.5.1-cuda12.1-cudnn9-devel",
+  "data_deps": [
+    {
+      "name": "neural-solver-library",
+      "host_path": "{data_root}/Neural-Solver-Library",
+      "container_path": "/data",
+      "prepare": "vendor/data_scripts/Neural-Solver-Library/prepare_data.py",
+      "description": "FNO airfoil/pipe/Darcy/NS/plasticity, PDEBench, mlcfd, AirfRANS, AirCraft."
+    }
+  ],
+  "install_cmds": [
+    "apt-get -o APT::Sandbox::User=root update -q && DEBIAN_FRONTEND=noninteractive apt-get -o APT::Sandbox::User=root install -y git wget unzip && rm -rf /var/lib/apt/lists/*",
+    "pip install h5py scipy scikit-learn timm einops seaborn pyvista sympy nystrom_attention vtk",
+    "pip install torch-scatter torch-sparse torch-cluster torch-geometric -f https://data.pyg.org/whl/torch-2.5.0+cu121.html",
+    "pip install airfrans"
+  ],
+  "env": {
+    "PYTHONPATH": "/workspace/Neural-Solver-Library:${PYTHONPATH}",
+    "HOME": "/root"
+  },
+  "use_cuda": true,
+  "writable_tmpfs": true,
+  "no_home": true,
+  "workdir": "/workspace"
+}

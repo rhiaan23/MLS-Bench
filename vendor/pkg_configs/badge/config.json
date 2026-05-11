@@ -1,0 +1,24 @@
+{
+  "base_image": "python:3.10-slim",
+  "install_cmds": [
+    "apt-get update && apt-get install -y git wget && rm -rf /var/lib/apt/lists/*",
+    "pip install --no-cache-dir torch torchvision --index-url https://download.pytorch.org/whl/cpu",
+    "pip install --no-cache-dir scikit-learn numpy scipy openml torchfile"
+  ],
+  "env": {
+    "PYTHONPATH": "/workspace/badge:${PYTHONPATH}",
+    "BADGE_DATA_DIR": "/workspace/badge/oml"
+  },
+  "host_data_prepare_requirements": ["openml"],
+  "data_deps": [
+    {
+      "name": "badge-openml",
+      "host_path": "{data_root}/badge/oml",
+      "container_path": "/workspace/badge/oml",
+      "prepare": "vendor/data_scripts/badge/prepare_data.py",
+      "description": "OpenML datasets 6, 44, and 46 cached as badge-compatible pickle files"
+    }
+  ],
+  "use_cuda": false,
+  "workdir": "/workspace"
+}

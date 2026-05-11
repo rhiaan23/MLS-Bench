@@ -1,0 +1,19 @@
+{
+  "base_image": "pytorch/pytorch:2.5.1-cuda12.1-cudnn9-devel",
+  "install_cmds": [
+    "apt-get -o APT::Sandbox::User=root update -q && DEBIAN_FRONTEND=noninteractive apt-get -o APT::Sandbox::User=root install -y wget && rm -rf /var/lib/apt/lists/*",
+    "pip install torchvision==0.20.1 scikit-learn numpy",
+    "mkdir -p /data/mnist /data/cifar /workspace/opt-vr-bench",
+    "python -c \"import torchvision; torchvision.datasets.MNIST('/data/mnist', download=True); torchvision.datasets.CIFAR10('/data/cifar', download=True); print('Data downloaded OK')\"",
+    "python -c \"import torchvision; ds = torchvision.datasets.MNIST('/data/mnist'); print(f'MNIST: {len(ds)} samples'); ds2 = torchvision.datasets.CIFAR10('/data/cifar'); print(f'CIFAR-10: {len(ds2)} samples')\""
+  ],
+  "env": {
+    "PYTHONPATH": "/workspace/opt-vr-bench:${PYTHONPATH}",
+    "MNIST_DATA": "/data/mnist",
+    "CIFAR_DATA": "/data/cifar"
+  },
+  "use_cuda": true,
+  "writable_tmpfs": true,
+  "no_home": true,
+  "workdir": "/workspace"
+}

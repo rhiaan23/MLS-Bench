@@ -1,0 +1,37 @@
+{
+  "base_image": "pytorch/pytorch:2.5.1-cuda12.1-cudnn9-devel",
+  "install_cmds": [
+    "apt-get -o APT::Sandbox::User=root update -q && DEBIAN_FRONTEND=noninteractive apt-get -o APT::Sandbox::User=root install -y git wget && rm -rf /var/lib/apt/lists/*",
+    "pip install --no-cache-dir --upgrade pip packaging wheel setuptools",
+    "pip uninstall -y torchvision torchaudio || true",
+    "pip install --no-cache-dir --no-build-isolation -e .",
+    "pip install --no-cache-dir datasets accelerate evaluate sentencepiece protobuf hqq optimum-quanto",
+    "pip install --no-cache-dir --force-reinstall --no-deps torch==2.5.1 --index-url https://download.pytorch.org/whl/cu121",
+    "pip uninstall -y torchvision torchaudio || true"
+  ],
+  "env": {
+    "HF_HOME": "/data/huggingface",
+    "HF_HUB_CACHE": "/data/huggingface/hub",
+    "HUGGINGFACE_HUB_CACHE": "/data/huggingface/hub",
+    "TRANSFORMERS_CACHE": "/data/huggingface/hub",
+    "HF_DATASETS_CACHE": "/data/huggingface/datasets",
+    "HF_HUB_OFFLINE": "1",
+    "TRANSFORMERS_OFFLINE": "1",
+    "HF_DATASETS_OFFLINE": "1",
+    "TORCH_HOME": "/data/huggingface/torch",
+    "XDG_CACHE_HOME": "/data/huggingface"
+  },
+  "data_deps": [
+    {
+      "name": "transformers-kv-lab-hf-cache",
+      "description": "Hugging Face cache for Qwen2.5-0.5B/3B and selection benchmark datasets",
+      "host_path": "{data_root}/huggingface_cache",
+      "container_path": "/data/huggingface",
+      "prepare": "vendor/data_scripts/transformers-kv-lab/prepare_hf_cache.py"
+    }
+  ],
+  "data_bind": "{data_root}/huggingface_cache:/data/huggingface",
+  "use_cuda": true,
+  "writable_tmpfs": true,
+  "workdir": "/workspace"
+}

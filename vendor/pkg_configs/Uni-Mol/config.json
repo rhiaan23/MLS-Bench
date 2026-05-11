@@ -1,0 +1,22 @@
+{
+  "base_image": "pytorch/pytorch:2.5.1-cuda12.1-cudnn9-devel",
+  "data_deps": [
+    {
+      "name": "uni-mol",
+      "host_path": "{data_root}/Uni-Mol",
+      "container_path": "/data",
+      "prepare": "vendor/data_scripts/Uni-Mol/prepare_data.py",
+      "description": "Uni-Mol pretrained weights and Uni-Mol pre-split molecular property prediction LMDB data (BBBP/BACE/Tox21/ESOL/FreeSolv/Lipo)."
+    }
+  ],
+  "install_cmds": [
+    "pip install 'numpy<2' rdkit-pypi scikit-learn pandas tqdm lmdb"
+  ],
+  "env": {
+    "PYTHONPATH": "/workspace/Uni-Mol:${PYTHONPATH}",
+    "DATA_DIR": "/data"
+  },
+  "use_cuda": true,
+  "writable_tmpfs": true,
+  "workdir": "/workspace"
+}

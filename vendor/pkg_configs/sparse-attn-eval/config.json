@@ -1,0 +1,53 @@
+{
+  "base_image": "pytorch/pytorch:2.5.1-cuda12.1-cudnn9-devel",
+  "install_cmds": [
+    "apt-get -o APT::Sandbox::User=root update -q && DEBIAN_FRONTEND=noninteractive apt-get -o APT::Sandbox::User=root install -y git wget ca-certificates && rm -rf /var/lib/apt/lists/*",
+    "pip install --no-cache-dir --upgrade pip",
+    "pip install --no-cache-dir transformers==4.46.3 accelerate==1.1.1 safetensors==0.4.5 huggingface_hub==0.26.2 sentencepiece protobuf",
+    "pip install --no-cache-dir datasets==3.1.0",
+    "pip install --no-cache-dir scipy==1.14.1 Pillow",
+    "python -c \"import transformers, datasets; print('libs ok', transformers.__version__, datasets.__version__)\"",
+    "mkdir -p /data/qwen2.5-1.5b-instruct /data/longctx /data/longbench-qasper /data/niah"
+  ],
+  "env": {
+    "HF_HOME": "/data/huggingface",
+    "TRANSFORMERS_CACHE": "/data/huggingface/transformers",
+    "HF_DATASETS_CACHE": "/data/longctx",
+    "PYTHONPATH": "/workspace/sparse-attn-eval:${PYTHONPATH}"
+  },
+  "data_deps": [
+    {
+      "name": "qwen2.5-1.5b-instruct",
+      "description": "Qwen2.5-1.5B-Instruct model weights for long-context inference (~3 GB)",
+      "host_path": "{data_root}/qwen2.5-1.5b-instruct",
+      "container_path": "/data/qwen2.5-1.5b-instruct",
+      "prepare": "vendor/data_scripts/sparse-attn-eval/prepare_pythia.py"
+    },
+    {
+      "name": "longctx",
+      "description": "PG-19 / WikiText-103 long-context corpus for PPL eval (~200 MB raw)",
+      "host_path": "{data_root}/longctx",
+      "container_path": "/data/longctx",
+      "prepare": "vendor/data_scripts/sparse-attn-eval/prepare_longctx.py"
+    },
+    {
+      "name": "longbench-qasper",
+      "description": "LongBench QA subsets (qasper + multifieldqa_en, ~100 examples each) for long-context QA eval",
+      "host_path": "{data_root}/longbench-qasper",
+      "container_path": "/data/longbench-qasper",
+      "prepare": "vendor/data_scripts/sparse-attn-eval/prepare_longbench.py"
+    },
+    {
+      "name": "niah",
+      "description": "Synthetic Needle-In-A-Haystack 8K-context test cases (deterministic, ~1 MB)",
+      "host_path": "{data_root}/niah",
+      "container_path": "/data/niah",
+      "prepare": "vendor/data_scripts/sparse-attn-eval/prepare_niah.py"
+    }
+  ],
+  "data_bind": "{data_root}:/data",
+  "use_cuda": true,
+  "writable_tmpfs": true,
+  "no_home": true,
+  "workdir": "/workspace"
+}

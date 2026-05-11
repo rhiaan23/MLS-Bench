@@ -1,0 +1,28 @@
+{
+  "base_image": "pytorch/pytorch:2.6.0-cuda12.4-cudnn9-devel",
+  "install_cmds": [
+    "apt-get -o APT::Sandbox::User=root update -q && DEBIAN_FRONTEND=noninteractive apt-get -o APT::Sandbox::User=root install -y git wget && rm -rf /var/lib/apt/lists/*",
+    "pip install einops timm beartype hydra-core==1.3 omegaconf wandb scipy lpips torchmetrics==1.3.2 clean-fid",
+    "python -c \"import torch; print('PyTorch:', torch.__version__)\"",
+    "python -c \"import timm; print('timm:', timm.__version__)\""
+  ],
+  "env": {
+    "PYTHONPATH": "/workspace/alphaflow-main/src:${PYTHONPATH}",
+    "DATA_DIR": "/data/cifar10",
+    "OUTPUT_DIR": "/tmp/output",
+    "TORCH_HOME": "/data/torch_cache"
+  },
+  "data_deps": [
+    {
+      "name": "alphaflow_runtime_data",
+      "host_path": "{data_root}/alphaflow_data",
+      "container_path": "/data",
+      "prepare": "vendor/data_scripts/alphaflow-main/prepare_data.py",
+      "description": "CIFAR-10, clean-fid CIFAR stats/Inception weights, and VGG16 cache used by meanflow perceptual-loss CV tasks."
+    }
+  ],
+  "use_cuda": true,
+  "writable_tmpfs": true,
+  "no_home": true,
+  "workdir": "/workspace"
+}

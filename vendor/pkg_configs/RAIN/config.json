@@ -1,0 +1,7 @@
+{
+  "base_image": "pytorch/pytorch:2.4.1-cuda12.4-cudnn9-runtime",
+  "install_cmds": ["pip install scipy"],
+  "use_cuda": true,
+  "workdir": "/workspace",
+  "env": {}
+}

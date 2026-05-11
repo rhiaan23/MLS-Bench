@@ -1,0 +1,31 @@
+{
+  "base_image": "pytorch/pytorch:2.5.1-cuda12.1-cudnn9-devel",
+  "install_cmds": [
+    "apt-get -o APT::Sandbox::User=root update -q && DEBIAN_FRONTEND=noninteractive apt-get -o APT::Sandbox::User=root install -y --no-install-recommends wget unzip gcc g++ && rm -rf /var/lib/apt/lists/*",
+    "pip install cython scipy requests pillow",
+    "cython learn2learn/data/meta_dataset.pyx learn2learn/data/task_dataset.pyx learn2learn/data/transforms.pyx",
+    "pip install .[vision]",
+    "rm -f /opt/conda/lib/python3.11/site-packages/learn2learn.egg-link",
+    "find /opt/conda/lib -name 'easy-install.pth' -exec sed -i '\\|/workspace/learn2learn|d' {} + 2>/dev/null; true",
+    "cd /tmp && python -c \"import learn2learn as l2l; print('learn2learn version:', l2l.__version__); print('location:', l2l.__file__)\"",
+    "mkdir -p /workspace/l2l_data",
+    "cd /tmp && python -c \"import learn2learn.vision.datasets as ds; d = ds.MiniImagenet(root='/workspace/l2l_data', mode='train', download=True); print('mini-imagenet train:', len(d))\"",
+    "cd /tmp && python -c \"import learn2learn.vision.datasets as ds; d = ds.MiniImagenet(root='/workspace/l2l_data', mode='validation', download=True); print('mini-imagenet val:', len(d))\"",
+    "cd /tmp && python -c \"import learn2learn.vision.datasets as ds; d = ds.MiniImagenet(root='/workspace/l2l_data', mode='test', download=True); print('mini-imagenet test:', len(d))\"",
+    "cd /tmp && python -c \"import learn2learn.vision.datasets as ds; d = ds.CIFARFS(root='/workspace/l2l_data', mode='train', download=True); print('cifar-fs train:', len(d))\"",
+    "cd /tmp && python -c \"import learn2learn.vision.datasets as ds; d = ds.CIFARFS(root='/workspace/l2l_data', mode='validation', download=True); print('cifar-fs val:', len(d))\"",
+    "cd /tmp && python -c \"import learn2learn.vision.datasets as ds; d = ds.CIFARFS(root='/workspace/l2l_data', mode='test', download=True); print('cifar-fs test:', len(d))\"",
+    "cd /tmp && python -c \"from learn2learn.vision.models import CNN4Backbone; import torch; m = CNN4Backbone(hidden_size=64, channels=3, max_pool=True); print('CNN4 output:', m(torch.randn(1,3,84,84)).shape); print('Package ready')\""
+  ],
+  "env": {
+    "HOME": "/root",
+    "L2L_DATA_ROOT": "/workspace/l2l_data"
+  },
+  "local_env": {
+    "L2L_DATA_ROOT": "{project_root}/vendor/external_packages/l2l_data"
+  },
+  "use_cuda": true,
+  "writable_tmpfs": true,
+  "no_home": true,
+  "workdir": "/workspace"
+}

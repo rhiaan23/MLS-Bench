@@ -1,0 +1,18 @@
+{
+  "base_image": "pytorch/pytorch:2.5.1-cuda12.1-cudnn9-devel",
+  "install_cmds": [
+    "apt-get -o APT::Sandbox::User=root update -q && DEBIAN_FRONTEND=noninteractive apt-get -o APT::Sandbox::User=root install -y --no-install-recommends wget git && rm -rf /var/lib/apt/lists/*",
+    "pip install torch-geometric==2.6.1 torch-scatter torch-sparse -f https://data.pyg.org/whl/torch-2.5.0+cu121.html",
+    "pip install scipy scikit-learn seaborn tqdm ogb",
+    "cd /workspace/ChebNetII && python -c \"from torch_geometric.datasets import Planetoid; Planetoid(root='./main/data', name='Cora'); Planetoid(root='./main/data', name='Citeseer'); print('Planetoid datasets downloaded')\"",
+    "cd /workspace/ChebNetII && python -c \"import torch; from torch_geometric.nn import GCNConv; print('PyG ready');\""
+  ],
+  "env": {
+    "PYTHONPATH": "/workspace/ChebNetII/main:${PYTHONPATH}",
+    "HOME": "/root"
+  },
+  "use_cuda": true,
+  "writable_tmpfs": true,
+  "no_home": true,
+  "workdir": "/workspace"
+}

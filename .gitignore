@@ -1,0 +1,51 @@
+# Vendor (runtime artifacts)
+vendor/external_packages/
+vendor/images/
+vendor/workspace/
+
+# Config (runtime configs may contain secrets)
+configs/*
+!configs/react.yaml
+!configs/openevolve.yaml
+!configs/discover.yaml
+
+# Results & logs (runtime)
+results/
+logs/
+.saves/
+.scheduler/
+
+# Python
+__pycache__/
+*.pyc
+*.egg-info/
+.DS_Store
+
+# Agent/development-local metadata
+.claude/
+.codex/
+.agents/
+context_packs/
+paper_assets/
+
+# build
+build/
+
+vendor/data/
+vendor/data_cache/
+
+# Cursor
+.specstory/
+.cursorindexingignore
+
+# Misc junk
+output/
+*.out
+
+# Leaderboard lockfiles from older runtime behavior
+.mlsbench-slurm-query*.lock
+tasks/**/leaderboard.csv.lock
+tasks/agent-tool-reasoning/.openrouter_key
+tasks/agent-tool-reasoning/.deepseek_key
+tasks/agent-tool-reasoning/.dashscope_key
+tasks/agent-tool-reasoning/.sopr_work/

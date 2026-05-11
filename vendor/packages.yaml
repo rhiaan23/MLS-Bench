@@ -1,0 +1,274 @@
+# External package registry — managed by `python cli.py fetch`
+# Each entry specifies the git repo URL and the exact commit to checkout.
+# Use `url: local` / `commit: local` for scaffold-only packages with no upstream repo.
+
+packages:
+
+  continual-learning:
+    url: https://github.com/GMvandeVen/continual-learning.git
+    commit: e6d795a
+
+  cleanrl:
+    url: https://github.com/vwxyzjn/cleanrl.git
+    commit: 004f8a086a892a2a180f4dd332b90d83a968aa7a
+
+  CORL:
+    url: https://github.com/corl-team/CORL.git
+    commit: eeeeef2671235fcce3a3eb255576a207d78840e6
+
+  pytorch-examples:
+    url: https://github.com/pytorch/examples.git
+    commit: acc295dc7b90714f1bf47f06004fc19a7fe235c4
+
+  qlib:
+    url: https://github.com/microsoft/qlib.git
+    commit: da920b7f954f48ab1bb64117c976710de198373e
+
+  Time-Series-Library:
+    url: https://github.com/thuml/Time-Series-Library.git
+    commit: edebffd8ea8f2db74346026dc31b9e96776ff575
+
+  causal-learn:
+    url: https://github.com/py-why/causal-learn.git
+    commit: f66d0f9841eb478c3dcb0b61a9cc5c419fd46fb6
+
+  chatdev-macnet:
+    url: https://github.com/OpenBMB/ChatDev.git
+    commit: e7a35824fd683ffe8fc237e28ecc47d7b1a5da63
+
+  causal-bnlearn:
+    url: https://github.com/py-why/causal-learn.git
+    commit: f66d0f9841eb478c3dcb0b61a9cc5c419fd46fb6
+
+  Neural-Solver-Library:
+    url: https://github.com/thuml/Neural-Solver-Library.git
+    commit: a8ce62f
+
+  torchattacks:
+    url: https://github.com/Harry24k/adversarial-attacks-pytorch.git
+    commit: 23620a694a3660e4f194c3e4d28992bced7785a1
+
+  scikit-learn:
+    url: local
+    commit: local
+
+  pytorch-geometric-lp:
+    url: local
+    commit: local
+
+  pytorch-vision:
+    url: local
+    commit: local
+
+  opacus:
+    url: local
+    commit: local
+
+  opt-vr-bench:
+    url: local
+    commit: local
+
+  learn2learn:
+    url: https://github.com/learnables/learn2learn.git
+    commit: db5cee3795490071282bbdfa81179ef732349196
+
+  BasicTS:
+    url: https://github.com/GestaltCogTeam/BasicTS.git
+    commit: c2bb6e3
+
+  nanoGPT:
+    url: https://github.com/karpathy/nanoGPT.git
+    commit: 3adf61e154c3fe3fca428ad6bc3818b27a3b8291
+
+  transformers-kv-lab:
+    url: https://github.com/huggingface/transformers.git
+    commit: aad13b87ed59f2afcfaebc985f403301887a35fc
+
+  dLLM-cache:
+    url: https://github.com/maomaocun/dLLM-Cache.git
+    commit: 17235bffc8c5b587a2dc6f7dc76fcd01eab76e3a
+
+  gplearn:
+    url: https://github.com/trevorstephens/gplearn.git
+    commit: 09b5f22c675c407f9610533680c30607a3f9f477
+
+  scaling-law-lab:
+    url: https://github.com/trevorstephens/gplearn.git
+    commit: 09b5f22c675c407f9610533680c30607a3f9f477
+
+  InverseBench:
+    url: https://github.com/devzhk/InverseBench.git
+    commit: c375f71ea528b29b49e2d79470872302627fb3ca
+
+  oyster:
+    url: https://github.com/katerakelly/oyster.git
+    commit: 44e20fddf181d8ca3852bdf9b6927d6b8c6f48fc
+
+  robomimic:
+    url: https://github.com/ARISE-Initiative/robomimic.git
+    commit: e10526b9a40c78b41f1e37e60041dc0ec0a5f60f
+
+  alphaflow-main:
+    url: https://github.com/snap-research/alphaflow.git
+    commit: b0fef77d8bf16ac4257080c55542b3f6205a8d82
+
+  badge:
+    url: https://github.com/JordanAsh/badge.git
+    commit: a2d18acd372cf0f61d9e75bfb0c879c107fbf9f6
+
+  CFGpp-main:
+    url: https://github.com/CFGpp-diffusion/CFGpp.git
+    commit: 8035352527eb01ac69f65feaab374ba50616ce2c
+
+  ChebNetII:
+    url: https://github.com/ivam-he/ChebNetII.git
+    commit: ded6c18cbe9673234071031767d17826ad632aca
+
+  ClimaX:
+    url: https://github.com/microsoft/ClimaX.git
+    commit: 6d5d354ffb4b91bb684f430b98e8f6f8af7c7f7c
+
+  ClimSim:
+    url: https://github.com/leap-stc/ClimSim.git
+    commit: 32ece32db0a85deeafdab188fb27297c819cd70c
+
+  dbim-codebase:
+    url: https://github.com/thu-ml/DiffusionBridge.git
+    commit: 92522733cc602686df77f07a1824bb89f89cda1a
+
+  deap:
+    url: https://github.com/DEAP/deap.git
+    commit: e4f816a7dfbad0de058bb381b71c3c3818e98a53
+
+  diffusers-main:
+    url: https://github.com/huggingface/diffusers.git
+    commit: a9855c4204047c3ff7183fce1502a253efb005c4
+
+  easy-few-shot-learning:
+    url: https://github.com/sicara/easy-few-shot-learning.git
+    commit: 8023ff49a02a68830c10a21b8eb908cb33bdf1b9
+
+  eb_jepa:
+    url: https://github.com/facebookresearch/eb_jepa.git
+    commit: 966e61e9285b3a876f49b9774e9720d9a99a7925
+
+  EHIGN_PLA:
+    url: https://github.com/guaguabujianle/EHIGN_PLA.git
+    commit: dfd88256318c1a35c7c7adb5534f0c706d9a16f3
+
+  eplb:
+    url: https://github.com/deepseek-ai/eplb.git
+    commit: d52c72d5b2f2fb4c41afbf8eb21366820239913d
+
+  epymarl:
+    url: https://github.com/uoe-agents/epymarl.git
+    commit: cbc38c0
+
+  flower:
+    url: https://github.com/adap/flower.git
+    commit: 6f3c1211dd107b97d4d0e958bdec006f132ada16
+
+  HypSeek:
+    url: https://github.com/jianhuiwemi/HypSeek.git
+    commit: 65520f347ac98a2cf2d6f80c64873763211248cc
+
+  imitation:
+    url: https://github.com/HumanCompatibleAI/imitation.git
+    commit: e5ef18806c449ca47153b494a02471c5e2ae3a14
+
+  humanoid-gym:
+    url: https://github.com/roboterax/humanoid-gym.git
+    commit: ae46e201c85a2b17e7f2cea59a441dae7ea88a8f
+
+  lm-evaluation-harness:
+    url: https://github.com/EleutherAI/lm-evaluation-harness.git
+    commit: 9d36354e6422db94c374dc476c093b1495370983
+
+  mini-algoperf:
+    url: local
+    commit: local
+
+  naslib:
+    url: https://github.com/automl/naslib.git
+    commit: 8cb5d2ba1e29784de43039d9824c68e88fb1a1da
+
+  PBB:
+    url: https://github.com/mperezortiz/PBB.git
+    commit: 466a3459520f963ed0cdd636840a75059ac93c82
+
+  penalized-bilevel-gradient-descent:
+    url: https://github.com/hanshen95/penalized-bilevel-gradient-descent.git
+    commit: d105496352c4516b65650cf773c6f12dc8bafb85
+
+  ProteinGym:
+    url: https://github.com/OATML-Markslab/ProteinGym.git
+    commit: 144fe22b07dfaeec2b366f2346203a9838a55b4c
+
+  ProteinInvBench:
+    url: https://github.com/A4Bio/ProteinInvBench.git
+    commit: d676962822c3f8009d5100a231443634ae9ade42
+
+  ProteinWorkshop:
+    url: https://github.com/a-r-j/ProteinWorkshop.git
+    commit: da7cfe6d3e469ef64d4899dc31a9391a3b69c8cc
+
+  pytorch-geometric:
+    url: https://github.com/pyg-team/pytorch_geometric.git
+    commit: 76ff9c2ce18c8cebf52122b57e2aeadce9793d10
+
+  RAIN:
+    url: https://github.com/TrueNobility303/RAIN.git
+    commit: c88c755a590138d4892cc5f2e6581fa5c431a13e
+
+  SMPyBandits:
+    url: https://github.com/SMPyBandits/SMPyBandits.git
+    commit: da1db4f63925c069ff8ac8e3297ebe074c762688
+
+  stabletoolbench:
+    url: https://github.com/zhichengg/StableToolBench.git
+    commit: aa4ed9f4737ad98bd706663f01d63623c3427812
+
+  tdmpc2:
+    url: https://github.com/nicklashansen/tdmpc2.git
+    commit: 8bbc14ebabdb32ea7ada5c801dc525d0dc73bafe
+
+  Uni-Mol:
+    url: https://github.com/deepmodeling/Uni-Mol.git
+    commit: 90f52c41299a1a582da0f9765e9f87aa21faa16a
+
+  verl:
+    url: https://github.com/volcengine/verl.git
+    commit: 32705dc135c9a4a06f359361b3d394610ad07e0c
+
+  CleanDiffuser:
+    url: https://github.com/CleanDiffuserTeam/CleanDiffuser.git
+    commit: 05f17fc9dbeae7c19a5e264632c9ae9aaac5994e
+
+  gsplat:
+    url: https://github.com/nerfstudio-project/gsplat.git
+    commit: 04b7d5b326bb5aec3c6021af413790c15bab6265
+
+  flash-attention:
+    url: https://github.com/Dao-AILab/flash-attention.git
+    commit: 14f3627d44687513adff00819ec894e54bf92cd7
+
+  gptq:
+    url: https://github.com/IST-DASLab/gptq.git
+    commit: 2d65066eeb06a5c9ff5184d8cebdf33662c67faf
+
+  omnisafe:
+    url: https://github.com/PKU-Alignment/omnisafe.git
+    commit: 15603dd7a654a991d0a4648216b69d60b81a6366
+
+  LLaDA:
+    url: https://github.com/ML-GSAI/LLaDA.git
+    commit: 570f29032d6824ea14977c89a8eb402e6eb25f96
+
+  llm-qat-runtime:
+    url: local
+    commit: local
+
+  sparse-attn-eval:
+    url: local
+    commit: local
+

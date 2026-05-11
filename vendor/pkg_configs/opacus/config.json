@@ -1,0 +1,10 @@
+{
+  "base_image": "pytorch/pytorch:2.5.1-cuda12.1-cudnn9-devel",
+  "install_cmds": [
+    "pip install opacus==1.5.4 torchvision scipy",
+    "python3 <<'DLEOF'\nimport torchvision\nprint('Downloading MNIST...')\ntorchvision.datasets.MNIST('/data/mnist', train=True, download=True)\ntorchvision.datasets.MNIST('/data/mnist', train=False, download=True)\nprint('Downloading CIFAR-10...')\ntorchvision.datasets.CIFAR10('/data/cifar10', train=True, download=True)\ntorchvision.datasets.CIFAR10('/data/cifar10', train=False, download=True)\nprint('Downloading Fashion-MNIST...')\ntorchvision.datasets.FashionMNIST('/data/fmnist', train=True, download=True)\ntorchvision.datasets.FashionMNIST('/data/fmnist', train=False, download=True)\nprint('All datasets downloaded OK')\nDLEOF"
+  ],
+  "use_cuda": true,
+  "workdir": "/workspace",
+  "env": {}
+}

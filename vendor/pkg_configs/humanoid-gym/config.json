@@ -1,0 +1,41 @@
+{
+  "base_image": "nvcr.io/nvidia/pytorch:22.04-py3",
+  "install_cmds": [
+    "apt-get -o APT::Sandbox::User=root update -q && DEBIAN_FRONTEND=noninteractive apt-get -o APT::Sandbox::User=root install -y git wget unzip libgl1-mesa-glx libglib2.0-0 libsm6 libxext6 libxrender-dev libx11-6 libxcursor1 libxinerama1 libxrandr2 libxi6 libxxf86vm1 libvulkan1 vulkan-tools mesa-vulkan-drivers gdb strace && apt-get clean && rm -rf /var/lib/apt/lists/*",
+    "rm -f /usr/share/vulkan/icd.d/intel_icd.x86_64.json /usr/share/vulkan/icd.d/lvp_icd.x86_64.json /usr/share/vulkan/icd.d/radeon_icd.x86_64.json && mkdir -p /usr/share/vulkan/icd.d && printf '%s\\n' '{' '    \"file_format_version\" : \"1.0.0\",' '    \"ICD\": {' '        \"library_path\": \"libGLX_nvidia.so.0\",' '        \"api_version\" : \"1.2.155\"' '    }' '}' > /usr/share/vulkan/icd.d/nvidia_icd.json",
+    "pip install numpy==1.23.5",
+    "cd /opt/isaacgym/python && pip install -e .",
+    "pip install mujoco==2.3.6 mujoco-python-viewer",
+    "pip install wandb DateTime tensorboard tqdm matplotlib",
+    "cd /workspace/humanoid-gym && pip install -e .",
+    "pip uninstall -y opencv-python opencv-python-headless || true",
+    "pip install --no-deps 'opencv-python-headless==4.5.5.64'"
+  ],
+  "extra_files": [
+    {
+      "src": "{data_root}/isaacgym",
+      "dst": "/opt/isaacgym"
+    }
+  ],
+  "data_deps": [
+    {
+      "name": "isaacgym",
+      "description": "Isaac Gym Preview 4 (auto-downloaded from NVIDIA's public CDN, ~200 MB, no login required). Copied into the image at build time via extra_files.",
+      "host_path": "{data_root}/isaacgym",
+      "container_path": "/opt/isaacgym",
+      "prepare": "vendor/data_scripts/humanoid-gym/prepare_isaacgym.py"
+    }
+  ],
+  "env": {
+    "PYTHONPATH": "/workspace/humanoid-gym:${PYTHONPATH}",
+    "LD_LIBRARY_PATH": "/usr/local/nvidia/lib:/usr/local/nvidia/lib64:${LD_LIBRARY_PATH}",
+    "VK_ICD_FILENAMES": "/usr/share/vulkan/icd.d/nvidia_icd.json",
+    "VK_LAYER_PATH": "",
+    "NVIDIA_DRIVER_CAPABILITIES": "all",
+    "NVIDIA_VISIBLE_DEVICES": "all",
+    "DISPLAY": ":0",
+    "PYTORCH_JIT": "0"
+  },
+  "use_cuda": true,
+  "workdir": "/workspace"
+}

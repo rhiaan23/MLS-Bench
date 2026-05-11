@@ -1,0 +1,27 @@
+[project]
+name = "mlsbench"
+version = "0.1.0"
+requires-python = ">=3.10"
+dependencies = ["pyyaml"]
+
+[project.optional-dependencies]
+agent = ["anthropic", "openai"]
+relay = ["fastapi", "uvicorn"]
+openevolve = ["openai>=1.0.0", "numpy>=1.22.0", "tqdm>=4.64.0", "flask", "dacite>=1.9.2"]
+discover = ["ttt-discover>=0.1.0", "tinker>=0.18"]
+web_search = ["tavily-python"]
+all = ["anthropic", "openai", "fastapi", "uvicorn", "tavily-python", "numpy>=1.22.0", "tqdm>=4.64.0", "flask", "dacite>=1.9.2", "ttt-discover>=0.1.0", "tinker>=0.18"]
+
+[project.scripts]
+mlsbench = "mlsbench.cli:main"
+mlsbench-squeue = "mlsbench.slurm_compat:squeue_main"
+mlsbench-sacct = "mlsbench.slurm_compat:sacct_main"
+mlsbench-scancel = "mlsbench.slurm_compat:scancel_main"
+mlsbench-sbatch = "mlsbench.slurm_compat:sbatch_main"
+
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]

@@ -1,0 +1,28 @@
+{
+  "base_image": "pytorch/pytorch:2.5.1-cuda12.1-cudnn9-devel",
+  "host_data_prepare_requirements": ["xarray", "netCDF4", "huggingface_hub"],
+  "data_deps": [
+    {
+      "name": "climsim",
+      "host_path": "{data_root}/ClimSim/processed",
+      "container_path": "/data/climsim",
+      "prepare": "vendor/data_scripts/ClimSim/prepare_data.py",
+      "ready_files": [
+        "{data_root}/ClimSim/processed/train_inputs.npy",
+        "{data_root}/ClimSim/processed/train_outputs.npy",
+        "{data_root}/ClimSim/processed/val_inputs.npy",
+        "{data_root}/ClimSim/processed/val_outputs.npy"
+      ],
+      "description": "Three months of E3SM-MMF low-res .nc downloaded from LEAP/ClimSim_low-res, converted to processed train/val .npy arrays."
+    }
+  ],
+  "install_cmds": [
+    "pip install tqdm xarray netcdf4 huggingface_hub"
+  ],
+  "env": {
+    "PYTHONPATH": "/workspace/ClimSim:${PYTHONPATH}",
+    "DATA_DIR": "/data/climsim"
+  },
+  "use_cuda": true,
+  "workdir": "/workspace"
+}

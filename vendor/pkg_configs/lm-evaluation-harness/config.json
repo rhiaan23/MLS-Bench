@@ -1,0 +1,55 @@
+{
+  "base_image": "pytorch/pytorch:2.6.0-cuda12.4-cudnn9-devel",
+  "install_cmds": [
+    "apt-get -o APT::Sandbox::User=root update -q && DEBIAN_FRONTEND=noninteractive apt-get -o APT::Sandbox::User=root install -y git && rm -rf /var/lib/apt/lists/*",
+    "pip install --no-cache-dir 'datasets<3.0'",
+    "pip install --no-cache-dir 'lm-eval>=0.4.0' tiktoken",
+    "pip install flash-linear-attention",
+    "pip install --no-cache-dir torch==2.6.0 --index-url https://download.pytorch.org/whl/cu124",
+    "pip install --no-cache-dir --force-reinstall triton==3.2.0",
+    "pip install --no-cache-dir --force-reinstall nvidia-nccl-cu12==2.21.5",
+    "python -c \"import ctypes, glob; path=glob.glob('/opt/conda/lib/python*/site-packages/nvidia/nccl/lib/libnccl.so.2')[0]; v=ctypes.c_int(); ctypes.CDLL(path).ncclGetVersion(ctypes.byref(v)); assert v.value == 22105, f'Expected NCCL 2.21.5 but got {v.value}'\"",
+    "mkdir -p /opt/tiktoken_cache && TIKTOKEN_CACHE_DIR=/opt/tiktoken_cache python -c \"import tiktoken; tiktoken.get_encoding('gpt2')\""
+  ],
+  "local_install_cmds": [
+    "pip install --no-cache-dir 'datasets<3.0'",
+    "pip install --no-cache-dir 'lm-eval>=0.4.0' tiktoken",
+    "pip install flash-linear-attention",
+    "pip install --no-cache-dir torch==2.6.0 --index-url https://download.pytorch.org/whl/cu124",
+    "pip install --no-cache-dir --force-reinstall triton==3.2.0",
+    "pip install --no-cache-dir --force-reinstall nvidia-nccl-cu12==2.21.5",
+    "python -c \"import ctypes; v=ctypes.c_int(); ctypes.CDLL('libnccl.so.2').ncclGetVersion(ctypes.byref(v)); assert v.value == 22105, f'Expected NCCL 2.21.5 but got {v.value}'\"",
+    "mkdir -p {data_root}/tiktoken_cache && TIKTOKEN_CACHE_DIR={data_root}/tiktoken_cache python -c \"import sys, tiktoken; exec(\\\"try:\\n tiktoken.get_encoding('gpt2')\\n print('tiktoken cache ready')\\nexcept Exception as exc:\\n print(f'tiktoken cache warm skipped: {exc}', file=sys.stderr)\\\")\""
+  ],
+  "env": {
+    "TIKTOKEN_CACHE_DIR": "/opt/tiktoken_cache",
+    "HF_DATASETS_OFFLINE": "1",
+    "HF_HUB_OFFLINE": "1"
+  },
+  "local_env": {
+    "TIKTOKEN_CACHE_DIR": "{data_root}/tiktoken_cache",
+    "HF_DATASETS_OFFLINE": "1",
+    "HF_HUB_OFFLINE": "1"
+  },
+  "host_data_prepare_requirements": [
+    "datasets<3.0",
+    "lm-eval>=0.4.0",
+    "tiktoken"
+  ],
+  "data_deps": [
+    {
+      "name": "lm-eval-datasets",
+      "description": "Pre-downloaded HF datasets for lm-eval (hellaswag, arc, piqa, winogrande, ~200MB)",
+      "host_path": "{data_root}/lm-eval-datasets",
+      "container_path": "/data/lm-eval-datasets",
+      "ready_files": [
+        "{data_root}/lm-eval-datasets/.complete"
+      ],
+      "prepare": "vendor/data_scripts/lm-evaluation-harness/prepare_datasets.py"
+    }
+  ],
+  "use_cuda": true,
+  "writable_tmpfs": true,
+  "no_home": true,
+  "workdir": "/workspace"
+}

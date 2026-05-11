@@ -1,0 +1,37 @@
+{
+  "base_image": "pytorch/pytorch:2.5.1-cuda12.1-cudnn9-devel",
+  "install_cmds": [
+    "apt-get -o APT::Sandbox::User=root update -q && DEBIAN_FRONTEND=noninteractive apt-get -o APT::Sandbox::User=root install -y git wget && rm -rf /var/lib/apt/lists/*",
+    "pip install --no-cache-dir --upgrade pip",
+    "pip install --no-cache-dir transformers accelerate safetensors huggingface_hub sentencepiece protobuf",
+    "pip install --no-cache-dir datasets",
+    "python -c \"from transformers import AutoModelForCausalLM; print('transformers OK')\"",
+    "mkdir -p /data/mistral-7b-v01 /data/wikitext2 /data/calibration"
+  ],
+  "env": {
+    "HF_HOME": "/data/huggingface",
+    "TRANSFORMERS_CACHE": "/data/huggingface/transformers",
+    "HF_DATASETS_CACHE": "/data/wikitext2",
+    "PYTHONPATH": "/workspace/gptq:${PYTHONPATH}"
+  },
+  "data_deps": [
+    {
+      "name": "mistral-7b-v01",
+      "description": "Mistral-7B-v0.1 model weights (~14GB)",
+      "host_path": "{data_root}/mistral-7b-v01",
+      "container_path": "/data/mistral-7b-v01",
+      "prepare": "vendor/data_scripts/gptq/prepare_model.py"
+    },
+    {
+      "name": "wikitext2",
+      "description": "WikiText-2 dataset for calibration and evaluation",
+      "host_path": "{data_root}/wikitext2",
+      "container_path": "/data/wikitext2",
+      "prepare": "vendor/data_scripts/gptq/prepare_wikitext2.py"
+    }
+  ],
+  "use_cuda": true,
+  "writable_tmpfs": true,
+  "no_home": true,
+  "workdir": "/workspace"
+}

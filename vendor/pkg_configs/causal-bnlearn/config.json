@@ -1,0 +1,12 @@
+{
+  "base_image": "pytorch/pytorch:2.4.1-cuda12.4-cudnn9-runtime",
+  "install_cmds": [
+    "pip install numpy scipy scikit-learn graphviz statsmodels pandas matplotlib networkx pydot tqdm momentchi2",
+    "pip install pgmpy"
+  ],
+  "env": {
+    "PYTHONPATH": "/workspace/causal-bnlearn:${PYTHONPATH}"
+  },
+  "use_cuda": false,
+  "workdir": "/workspace"
+}

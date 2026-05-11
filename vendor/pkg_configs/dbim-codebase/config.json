@@ -1,0 +1,57 @@
+{
+  "base_image": "pytorch/pytorch:2.4.1-cuda12.4-cudnn9-runtime",
+  "host_data_prepare_requirements": [
+    "huggingface_hub>=0.20",
+    "opencv-python",
+    "matplotlib",
+    "numpy",
+    "torch",
+    "Pillow",
+    "gdown>=5"
+  ],
+  "data_deps": [
+    {
+      "name": "dbim_data",
+      "host_path": "{data_root}/dbim_data",
+      "container_path": "/workspace/dbim-codebase/assets",
+      "prepare": "vendor/data_scripts/dbim-codebase/prepare_data.py",
+      "ready_files": [
+        "{data_root}/dbim_data/datasets/edges2handbags/train",
+        "{data_root}/dbim_data/datasets/edges2handbags/val",
+        "{data_root}/dbim_data/datasets/DIODE-256/train",
+        "{data_root}/dbim_data/datasets/ImageNet/val",
+        "{data_root}/dbim_data/datasets/val_faster_imagefolder_10k_fn.txt",
+        "{data_root}/dbim_data/datasets/val_faster_imagefolder_10k_label.txt",
+        "{data_root}/dbim_data/ckpts/e2h_ema_0.9999_420000_adapted.pt",
+        "{data_root}/dbim_data/ckpts/diode_ema_0.9999_440000_adapted.pt",
+        "{data_root}/dbim_data/ckpts/imagenet256_inpaint_ema_0.9999_400000.pt",
+        "{data_root}/dbim_data/stats/edges2handbags_ref_64_data.npz",
+        "{data_root}/dbim_data/stats/diode_ref_256_data.npz",
+        "{data_root}/dbim_data/inception-2015-12-05.pt",
+        "{data_root}/dbim_data/pt_inception-2015-12-05-6726825d.pth",
+        "{data_root}/dbim_data/torch_cache/hub/checkpoints/resnet50-0676ba61.pth",
+        "{data_root}/dbim_data/torch_cache/hub/checkpoints/vgg16-397923af.pth"
+      ],
+      "description": "Datasets (e2h, DIODE-256, ImageNet val), checkpoints, FID stats, inception weights, and torch model cache for DBIM tasks. ImageNet val is fetched from the non-gated mlx-vision/imagenet-1k HF mirror; only val is needed (cv-dbm-sampler runs --split test against InpaintingVal10kSubset, FID ref is generated from val on first run)."
+    }
+  ],
+  "install_cmds": [
+    "apt-get -o APT::Sandbox::User=root update -q && DEBIAN_FRONTEND=noninteractive apt-get -o APT::Sandbox::User=root install -y wget curl unzip && apt-get clean && rm -rf /var/lib/apt/lists/*",
+    "pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121",
+    "pip install blobfile piq matplotlib opencv-python joblib lmdb scipy clean-fid easydict torchmetrics rich ipdb wandb decorator",
+    "python -c \"import torchvision, torchmetrics; print('DBIM deps OK')\""
+  ],
+  "data_bind": [
+    "{data_root}/dbim_data:/workspace/dbim-codebase/assets",
+    "{data_root}/dbim_data/torch_cache:/data/torch_cache"
+  ],
+  "env": {
+    "PYTHONPATH": "/workspace/dbim-codebase",
+    "HOME": "/root",
+    "TORCH_HOME": "/data/torch_cache"
+  },
+  "use_cuda": true,
+  "writable_tmpfs": true,
+  "no_home": true,
+  "workdir": "/workspace"
+}

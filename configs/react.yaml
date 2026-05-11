@@ -1,0 +1,37 @@
+# Default MLS-Bench runtime config for ReAct-style tool-use agents.
+#
+# Fill provider keys locally before running agents. Do not commit private keys.
+
+max_steps: 20
+max_tests: 3
+save_path: runs
+data_root: vendor/data
+seeds: [42, 123, 456]
+
+# Supported values: docker, apptainer, local
+container_runtime: docker
+compute_scale: 1.0
+
+thinking:
+  enabled: true
+  reasoning_effort: high
+  budget_tokens: 10000
+
+providers:
+  openai:
+    api_key: ""
+  anthropic:
+    api_key: ""
+  deepseek:
+    api_key: ""
+    base_url: "https://api.deepseek.com/v1"
+  qwen:
+    api_key: ""
+    base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1"
+  gemini:
+    api_key: ""
+    base_url: "https://generativelanguage.googleapis.com/v1beta/openai/"
+  openrouter:
+    api_key: ""
+    base_url: "https://openrouter.ai/api/v1"
+

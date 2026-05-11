@@ -1,0 +1,9 @@
+{
+  "base_image": "python:3.10-slim",
+  "install_cmds": [
+    "pip install numpy scipy scikit-learn gplearn"
+  ],
+  "use_cuda": false,
+  "workdir": "/workspace",
+  "env": {}
+}

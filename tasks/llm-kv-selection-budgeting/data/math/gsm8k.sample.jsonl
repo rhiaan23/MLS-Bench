@@ -1,0 +1,3 @@
+{"unique_id":"gsm8k-sample-0","question":"Janet has 3 bags with 4 apples in each bag. She buys 2 more apples. How many apples does she have now?","answer":"Janet starts with 3*4 = 12 apples. She buys 2 more, so she has 14. #### 14"}
+{"unique_id":"gsm8k-sample-1","question":"A pencil costs 3 dollars and an eraser costs 2 dollars. Tom buys 2 pencils and 1 eraser. How much does he spend?","answer":"2 pencils cost 2*3 = 6 dollars. Adding 1 eraser gives 6 + 2 = 8. #### 8"}
+{"unique_id":"gsm8k-sample-2","question":"There are 18 cookies. They are shared equally among 3 children. How many cookies does each child get?","answer":"18 / 3 = 6. #### 6"}

@@ -1,0 +1,33 @@
+{
+  "base_image": "pytorch/pytorch:2.5.1-cuda12.1-cudnn9-devel",
+  "data_deps": [
+    {
+      "name": "proteingym",
+      "host_path": "{data_root}/proteingym",
+      "container_path": "/data/proteingym",
+      "prepare": "vendor/data_scripts/ProteinGym/prepare_data.py",
+      "description": "ProteinGym v1.1 substitution benchmark: DMS_substitutions.csv, DMS_assays/, cv_folds/."
+    },
+    {
+      "name": "proteingym-embeddings",
+      "host_path": "{data_root}/proteingym_embeddings",
+      "container_path": "/data/esm2_embeddings",
+      "prepare": "vendor/data_scripts/ProteinGym/prepare_data.py",
+      "description": "ESM2-650M mean-pooled embeddings for the three assays consumed by the task."
+    }
+  ],
+  "install_cmds": [
+    "pip install scipy scikit-learn pandas fair-esm pooch requests",
+    "pip install -e /workspace/ProteinGym",
+    "python -c \"import torch; import esm; model, alphabet = esm.pretrained.esm2_t33_650M_UR50D(); print('ESM-2 650M downloaded successfully')\""
+  ],
+  "data_bind": [
+    "{data_root}/proteingym:/data/proteingym",
+    "{data_root}/proteingym_embeddings:/data/esm2_embeddings"
+  ],
+  "env": {
+    "PYTHONPATH": "/workspace/ProteinGym:${PYTHONPATH}"
+  },
+  "use_cuda": true,
+  "workdir": "/workspace"
+}

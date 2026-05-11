@@ -1,0 +1,21 @@
+{
+  "base_image": "pytorch/pytorch:2.5.1-cuda12.1-cudnn9-runtime",
+  "install_cmds": [
+    "pip install numpy torchvision matplotlib tqdm"
+  ],
+  "data_deps": [
+    {
+      "name": "continual_learning_datasets",
+      "host_path": "{data_root}/continual-learning",
+      "container_path": "/data/continual-learning",
+      "prepare": "vendor/data_scripts/continual-learning/prepare_data.py",
+      "description": "MNIST and CIFAR-100 datasets for continual learning experiments"
+    }
+  ],
+  "data_bind": "{data_root}:/data",
+  "env": {},
+  "use_cuda": true,
+  "writable_tmpfs": false,
+  "no_home": false,
+  "workdir": "/workspace"
+}

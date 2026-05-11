@@ -1,0 +1,9 @@
+{
+  "base_image": "pytorch/pytorch:2.4.1-cuda12.4-cudnn9-runtime",
+  "install_cmds": [
+    "pip install -e .",
+    "pip install networkx scikit-learn"
+  ],
+  "use_cuda": false,
+  "workdir": "/workspace"
+}

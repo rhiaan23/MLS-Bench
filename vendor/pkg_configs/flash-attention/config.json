@@ -1,0 +1,17 @@
+{
+  "base_image": "pytorch/pytorch:2.6.0-cuda12.6-cudnn9-devel",
+  "install_cmds": [
+    "apt-get update && apt-get install -y git ninja-build && rm -rf /var/lib/apt/lists/*",
+    "pip install --no-cache-dir triton packaging einops",
+    "python -c \"import torch; abi = 'TRUE' if torch._C._GLIBCXX_USE_CXX11_ABI else 'FALSE'; print(f'CXX11 ABI: {abi}')\"",
+    "python -c \"import triton; print(f'Triton {triton.__version__} OK')\""
+  ],
+  "env": {
+    "PYTHONPATH": "/workspace:${PYTHONPATH}",
+    "TRITON_CACHE_DIR": "/tmp/triton_cache"
+  },
+  "use_cuda": true,
+  "writable_tmpfs": true,
+  "no_home": true,
+  "workdir": "/workspace"
+}

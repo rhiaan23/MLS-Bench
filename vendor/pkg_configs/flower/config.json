@@ -1,0 +1,21 @@
+{
+  "base_image": "pytorch/pytorch:2.5.1-cuda12.1-cudnn9-devel",
+  "install_cmds": [
+    "apt-get -o APT::Sandbox::User=root update -q && DEBIAN_FRONTEND=noninteractive apt-get -o APT::Sandbox::User=root install -y git wget && rm -rf /var/lib/apt/lists/*",
+    "pip install numpy scipy torchvision",
+    "python -c \"import torchvision; torchvision.datasets.CIFAR10('/data/cifar10', train=True, download=True); torchvision.datasets.CIFAR10('/data/cifar10', train=False, download=True)\"",
+    "python -c \"import torchvision; torchvision.datasets.EMNIST('/data/emnist', split='byclass', train=True, download=True); torchvision.datasets.EMNIST('/data/emnist', split='byclass', train=False, download=True)\"",
+    "python -c \"import torchtext; print('Shakespeare will be downloaded via custom loader')\" || true",
+    "mkdir -p /data/shakespeare && python -c \"import urllib.request; urllib.request.urlretrieve('https://raw.githubusercontent.com/karpathy/char-rnn/master/data/tinyshakespeare/input.txt', '/data/shakespeare/input.txt')\"",
+    "python -c \"import torch, torchvision; print(f'PyTorch {torch.__version__}, torchvision {torchvision.__version__}')\"",
+    "pip install flwr[simulation]==1.12.0 || pip install flwr==1.12.0 || true"
+  ],
+  "env": {
+    "DATA_DIR": "/data",
+    "PYTHONPATH": "/workspace/flower:${PYTHONPATH}"
+  },
+  "use_cuda": true,
+  "writable_tmpfs": true,
+  "no_home": true,
+  "workdir": "/workspace"
+}

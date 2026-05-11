@@ -1,0 +1,37 @@
+{
+  "base_image": "pytorch/pytorch:2.5.1-cuda12.1-cudnn9-devel",
+  "install_cmds": [
+    "apt-get -o APT::Sandbox::User=root update -q && DEBIAN_FRONTEND=noninteractive apt-get -o APT::Sandbox::User=root install -y git wget && rm -rf /var/lib/apt/lists/*",
+    "pip install --no-cache-dir --upgrade pip",
+    "pip install --no-cache-dir transformers==4.46.3 accelerate safetensors huggingface_hub sentencepiece protobuf",
+    "pip install --no-cache-dir datasets",
+    "python -c \"from transformers import AutoModelForCausalLM; print('transformers OK')\"",
+    "mkdir -p /data/pythia-1.4b /data/wikitext2 /workspace/llm-qat-runtime"
+  ],
+  "env": {
+    "HF_HOME": "/data/huggingface",
+    "TRANSFORMERS_CACHE": "/data/huggingface/transformers",
+    "HF_DATASETS_CACHE": "/data/wikitext2",
+    "PYTHONPATH": "/workspace/llm-qat-runtime:${PYTHONPATH}"
+  },
+  "data_deps": [
+    {
+      "name": "pythia-1.4b",
+      "description": "Pythia-1.4B (GPTNeoX) base model weights from HuggingFace (~3GB)",
+      "host_path": "{data_root}/pythia-1.4b",
+      "container_path": "/data/pythia-1.4b",
+      "prepare": "vendor/data_scripts/llm-qat-runtime/prepare_pythia.py"
+    },
+    {
+      "name": "wikitext2",
+      "description": "WikiText-2 raw v1 dataset for QAT calibration / fine-tune / evaluation",
+      "host_path": "{data_root}/wikitext2",
+      "container_path": "/data/wikitext2",
+      "prepare": "vendor/data_scripts/llm-qat-runtime/prepare_wikitext2.py"
+    }
+  ],
+  "use_cuda": true,
+  "writable_tmpfs": true,
+  "no_home": true,
+  "workdir": "/workspace"
+}

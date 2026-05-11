@@ -1,0 +1,28 @@
+{
+  "base_image": "pytorch/pytorch:2.1.2-cuda12.1-cudnn8-runtime",
+  "install_cmds": [
+    "apt-get update -q && apt-get install -y wget curl git build-essential && apt-get clean && rm -rf /var/lib/apt/lists/*",
+    "pip install --upgrade cython",
+    "pip install pyqlib lightgbm scikit-learn matplotlib tqdm cvxpy",
+    "pip install 'numpy==1.24.4' 'pandas==1.4.4' --force-reinstall",
+    "pip install 'tianshou<=0.4.10' ruamel.yaml",
+    "pip install 'protobuf>=5.0,<7.0'",
+    "python -c \"import pandas; print('pandas', pandas.__version__); import numpy; print('numpy', numpy.__version__)\"",
+    "sed -i \"s/astype(\\\"datetime64\\\")/astype('datetime64[ns]')/\" /workspace/qlib/examples/rl_order_execution/scripts/gen_training_orders.py",
+    "sed -i 's/\\.droplevel(level=0)//' /workspace/qlib/examples/rl_order_execution/scripts/gen_training_orders.py",
+    "python /workspace/qlib/scripts/get_data.py qlib_data --target_dir /root/.qlib/qlib_data/cn_data --region cn",
+    "mkdir -p /root/.qlib/qlib_data && python -c \"import urllib.request; urllib.request.urlretrieve('https://github.com/SunsetWolf/qlib_dataset/releases/download/v0/qlib_csi300_stock2concept.npy', '/root/.qlib/qlib_data/qlib_csi300_stock2concept.npy')\"",
+    "python -c \"import urllib.request; urllib.request.urlretrieve('https://raw.githubusercontent.com/microsoft/qlib/main/examples/benchmarks/HIST/qlib_csi300_stock_index.npy', '/root/.qlib/qlib_data/qlib_csi300_stock_index.npy')\"",
+    "mkdir -p /root/rl_data && python /workspace/qlib/scripts/get_data.py qlib_data --target_dir /root/rl_data/data/bin --region hs300 --interval 5min",
+    "cd /root/rl_data && python /workspace/qlib/examples/rl_order_execution/scripts/gen_pickle_data.py -c /workspace/qlib/examples/rl_order_execution/scripts/pickle_data_config.yml",
+    "cd /root/rl_data && python /workspace/qlib/examples/rl_order_execution/scripts/gen_training_orders.py",
+    "cd /root/rl_data && python /workspace/qlib/examples/rl_order_execution/scripts/merge_orders.py"
+  ],
+  "env": {
+    "HOME": "/root"
+  },
+  "use_cuda": true,
+  "writable_tmpfs": true,
+  "no_home": true,
+  "workdir": "/workspace"
+}

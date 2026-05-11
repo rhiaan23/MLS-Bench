@@ -1,0 +1,31 @@
+{
+  "base_image": "pytorch/pytorch:2.5.1-cuda12.1-cudnn9-devel",
+  "install_cmds": [
+    "apt-get update && apt-get install -y git && rm -rf /var/lib/apt/lists/*",
+    "pip install --no-cache-dir 'transformers>=4.46,<4.49' accelerate sentencepiece protobuf",
+    "pip install --no-cache-dir sympy regex",
+    "mkdir -p /opt/huggingface /data/llada-instruct",
+    "HF_HOME=/opt/huggingface python -c \"from transformers import AutoModel, AutoTokenizer; AutoTokenizer.from_pretrained('GSAI-ML/LLaDA-8B-Base', trust_remote_code=True); AutoModel.from_pretrained('GSAI-ML/LLaDA-8B-Base', trust_remote_code=True, torch_dtype='auto')\"",
+    "HF_HOME=/opt/huggingface python -c \"from transformers import AutoModel, AutoTokenizer; AutoTokenizer.from_pretrained('Dream-org/Dream-v0-Instruct-7B', trust_remote_code=True); AutoModel.from_pretrained('Dream-org/Dream-v0-Instruct-7B', trust_remote_code=True, torch_dtype='auto')\""
+  ],
+  "env": {
+    "HF_HOME": "/opt/huggingface",
+    "HF_HUB_OFFLINE": "1",
+    "TRANSFORMERS_OFFLINE": "1",
+    "LLADA_INSTRUCT_PATH": "/data/llada-instruct",
+    "PYTHONPATH": "/workspace/LLaDA:${PYTHONPATH}"
+  },
+  "data_deps": [
+    {
+      "name": "llada-instruct",
+      "description": "LLaDA-8B-Instruct weights (~16GB)",
+      "host_path": "{data_root}/llada-instruct",
+      "container_path": "/data/llada-instruct",
+      "prepare": "vendor/data_scripts/LLaDA/prepare_llada_instruct.py"
+    }
+  ],
+  "use_cuda": true,
+  "writable_tmpfs": true,
+  "no_home": true,
+  "workdir": "/workspace"
+}

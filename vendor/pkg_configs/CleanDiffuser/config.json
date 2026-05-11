@@ -1,0 +1,45 @@
+{
+  "base_image": "pytorch/pytorch:2.5.1-cuda12.1-cudnn9-devel",
+  "extra_files": [
+    {
+      "src": "vendor/pkg_configs/CleanDiffuser/download_datasets.py",
+      "dst": "/workspace/download_datasets.py"
+    },
+    {
+      "src": "vendor/external_packages/robomimic",
+      "dst": "/workspace/robomimic"
+    },
+    {
+      "src": "vendor/pkg_configs/CleanDiffuser/install_mesa.sh",
+      "dst": "/workspace/install_mesa.sh"
+    }
+  ],
+  "install_cmds": [
+    "apt-get -o APT::Sandbox::User=root update -q && DEBIAN_FRONTEND=noninteractive apt-get -o APT::Sandbox::User=root install -y build-essential patchelf curl git libgl1-mesa-dev libgl1-mesa-glx libglew-dev libosmesa6-dev software-properties-common wget && apt-get clean && rm -rf /var/lib/apt/lists/* || bash /workspace/install_mesa.sh",
+    "pip install patchelf",
+    "pip install einops hydra-core omegaconf wandb dill zarr==2.16.1 numcodecs==0.12.1 av h5py tqdm matplotlib six cython==3.0.0 numba==0.59.1 shapely==1.8.5.post1 scikit-image==0.22.0 opencv-python-headless imagecodecs pygame pymunk gym==0.23.1",
+    "pip install mujoco==3.6.0",
+    "pip install robosuite==1.5.1",
+    "cd /workspace/robomimic && pip install -e .",
+    "cd /workspace/CleanDiffuser && pip install -e . --no-deps",
+    "pip uninstall -y opencv-python && pip install --force-reinstall --no-deps opencv-python-headless",
+    "mkdir -p /opt/mujoco && wget -q https://mujoco.org/download/mujoco210-linux-x86_64.tar.gz -O /tmp/mujoco.tar.gz && tar --no-same-owner -xf /tmp/mujoco.tar.gz -C /opt/mujoco && rm /tmp/mujoco.tar.gz",
+    "pip install 'typing-extensions<4.6.0' 'Cython<3.0'",
+    "LD_LIBRARY_PATH=/opt/mujoco/mujoco210/bin:${LD_LIBRARY_PATH} MUJOCO_PY_MUJOCO_PATH=/opt/mujoco/mujoco210 pip install 'mujoco-py<2.2,>=2.1'",
+    "pip install --ignore-requires-python --no-deps https://github.com/aravindr93/mjrl/archive/refs/heads/master.tar.gz",
+    "pip install --ignore-requires-python --no-deps https://github.com/Farama-Foundation/d4rl/archive/refs/heads/master.tar.gz",
+    "pip install click dm_control cloudpickle termcolor",
+    "LD_LIBRARY_PATH=/opt/mujoco/mujoco210/bin:${LD_LIBRARY_PATH} MUJOCO_PY_MUJOCO_PATH=/opt/mujoco/mujoco210 python3 -c 'import mujoco_py' || true",
+    "LD_LIBRARY_PATH=/opt/mujoco/mujoco210/bin:${LD_LIBRARY_PATH} MUJOCO_PY_MUJOCO_PATH=/opt/mujoco/mujoco210 python3 -c \"import gym, d4rl; envs = ['hopper-medium-v2', 'walker2d-medium-v2', 'halfcheetah-medium-v2']; [d4rl.qlearning_dataset(gym.make(e)) or print('Downloaded:', e) for e in envs]\"",
+    "python3 /workspace/download_datasets.py"
+  ],
+  "env": {
+    "MUJOCO_GL": "osmesa",
+    "MUJOCO_PY_MUJOCO_PATH": "/opt/mujoco/mujoco210",
+    "LD_LIBRARY_PATH": "/opt/mujoco/mujoco210/bin:${LD_LIBRARY_PATH}",
+    "D4RL_DATASET_DIR": "/root/.d4rl/datasets"
+  },
+  "use_cuda": true,
+  "writable_tmpfs": true,
+  "workdir": "/workspace"
+}

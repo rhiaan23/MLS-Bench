@@ -1,0 +1,31 @@
+{
+  "base_image": "pytorch/pytorch:2.5.1-cuda12.1-cudnn9-devel",
+  "data_deps": [
+    {
+      "name": "ehign-pla",
+      "host_path": "{data_root}/EHIGN_PLA",
+      "container_path": "/data",
+      "prepare": "vendor/data_scripts/EHIGN_PLA/prepare_data.py",
+      "ready_files": [
+        "{data_root}/EHIGN_PLA/train_data.pt",
+        "{data_root}/EHIGN_PLA/valid_data.pt",
+        "{data_root}/EHIGN_PLA/test2013_data.pt",
+        "{data_root}/EHIGN_PLA/test2016_data.pt",
+        "{data_root}/EHIGN_PLA/test2019_data.pt"
+      ],
+      "description": "PDBbind heterograph aggregates (train/valid/test{2013,2016,2019} .pt + .csv) derived from the upstream EHIGN_PLA Google Drive release."
+    }
+  ],
+  "install_cmds": [
+    "pip install scikit-learn pandas scipy tqdm",
+    "pip install dgl -f https://data.dgl.ai/wheels/cu121/repo.html || pip install dgl"
+  ],
+  "data_bind": "{data_root}/EHIGN_PLA:/data",
+  "env": {
+    "PYTHONPATH": "/workspace/EHIGN_PLA:${PYTHONPATH}",
+    "DATA_DIR": "/data"
+  },
+  "use_cuda": true,
+  "writable_tmpfs": true,
+  "workdir": "/workspace"
+}

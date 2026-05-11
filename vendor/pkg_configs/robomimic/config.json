@@ -1,0 +1,53 @@
+{
+  "base_image": "pytorch/pytorch:2.4.1-cuda12.4-cudnn9-runtime",
+  "extra_files": [
+    {
+      "src": "vendor/pkg_configs/robomimic/download_datasets.py",
+      "dst": "/workspace/download_datasets.py"
+    }
+  ],
+  "install_cmds": [
+    "apt-get update -q && DEBIAN_FRONTEND=noninteractive apt-get install -y build-essential patchelf curl git libgl1-mesa-dev libgl1-mesa-glx libglew-dev libosmesa6-dev software-properties-common wget && apt-get clean && rm -rf /var/lib/apt/lists/*",
+    "pip install h5py psutil tqdm termcolor tensorboard imageio imageio-ffmpeg matplotlib numpy mujoco robosuite==1.5.1",
+    "cd /workspace/robomimic && pip install -e .",
+    "export MUJOCO_GL=osmesa",
+    "python3 /workspace/download_datasets.py"
+  ],
+  "env": {
+    "MUJOCO_GL": "osmesa",
+    "PYTHONPATH": "/workspace/robomimic:${PYTHONPATH}",
+    "DATASET_ROOT": "/data/datasets"
+  },
+  "data_deps": [
+    {
+      "name": "transport-ph",
+      "description": "Robomimic Transport (two-arm) PH dataset",
+      "host_path": "{project_root}/vendor/data/robomimic/transport",
+      "container_path": "/data/datasets/transport",
+      "prepare": "vendor/pkg_configs/robomimic/download_transport.py"
+    },
+    {
+      "name": "tool_hang-ph",
+      "description": "Robomimic ToolHang PH dataset",
+      "host_path": "{project_root}/vendor/data/robomimic/tool_hang",
+      "container_path": "/data/datasets/tool_hang",
+      "prepare": "vendor/pkg_configs/robomimic/download_tool_hang.py"
+    },
+    {
+      "name": "can-ph",
+      "description": "Robomimic Can PH dataset",
+      "host_path": "{project_root}/vendor/data/robomimic/can",
+      "container_path": "/data/datasets/can",
+      "prepare": "vendor/pkg_configs/robomimic/download_can.py"
+    },
+    {
+      "name": "square-ph",
+      "description": "Robomimic Square PH dataset",
+      "host_path": "{project_root}/vendor/data/robomimic/square",
+      "container_path": "/data/datasets/square",
+      "prepare": "vendor/pkg_configs/robomimic/download_square.py"
+    }
+  ],
+  "use_cuda": true,
+  "workdir": "/workspace"
+}

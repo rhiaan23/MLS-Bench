@@ -1,0 +1,14 @@
+{
+  "base_image": "pytorch/pytorch:2.2.2-cuda12.1-cudnn8-runtime",
+  "install_cmds": [
+    "apt-get -o APT::Sandbox::User=root update -q && DEBIAN_FRONTEND=noninteractive apt-get -o APT::Sandbox::User=root install -y --no-install-recommends build-essential libosmesa6-dev libgl1-mesa-glx libglfw3 patchelf libsdl2-dev libsdl2-image-dev libsdl2-mixer-dev libsdl2-ttf-dev libfreetype6-dev libportmidi-dev && apt-get clean && rm -rf /var/lib/apt/lists/*",
+    "cd /workspace/omnisafe && pip install -e ."
+  ],
+  "env": {
+    "MUJOCO_GL": "osmesa",
+    "PYOPENGL_PLATFORM": "osmesa",
+    "LD_PRELOAD": "/usr/lib/x86_64-linux-gnu/libstdc++.so.6"
+  },
+  "use_cuda": true,
+  "workdir": "/workspace"
+}

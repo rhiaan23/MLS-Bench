@@ -1,0 +1,12 @@
+{
+  "base_image": "pytorch/pytorch:2.4.1-cuda12.4-cudnn9-runtime",
+  "install_cmds": [
+    "pip install torchvision==0.19.1",
+    "python3 -c \"from torchvision.datasets import MNIST; MNIST('/data/mnist', train=True, download=True)\""
+  ],
+  "use_cuda": true,
+  "workdir": "/workspace",
+  "env": {
+    "PYTHONPATH": "/workspace/penalized-bilevel-gradient-descent:${PYTHONPATH}"
+  }
+}

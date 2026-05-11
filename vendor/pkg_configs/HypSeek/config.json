@@ -1,0 +1,57 @@
+{
+  "base_image": "pytorch/pytorch:2.5.1-cuda12.1-cudnn9-devel",
+  "verify_existing_data": true,
+  "data_deps": [
+    {
+      "name": "hypseek-pretrain",
+      "host_path": "{data_root}/HypSeek/pretrain",
+      "container_path": "/data/pretrain",
+      "prepare": "vendor/data_scripts/HypSeek/prepare_data.py",
+      "description": "Uni-Mol mol/pocket pretrained weights from deepmodeling/Uni-Mol v0.1."
+    },
+    {
+      "name": "hypseek-hf-cache",
+      "host_path": "{data_root}/HypSeek/hf_cache",
+      "container_path": "/data/hf_cache",
+      "prepare": "vendor/data_scripts/HypSeek/prepare_data.py",
+      "description": "ESM2-t12-35M tokenizer + weights cached for offline use."
+    },
+    {
+      "name": "hypseek-vs-data",
+      "host_path": "{data_root}/HypSeek/vs_data",
+      "container_path": "/data/vs_data",
+      "prepare": "vendor/data_scripts/HypSeek/prepare_data.py",
+      "description": "HypSeek VS training/validation data (lmdbs, label sequences, cluster files) from authors' figshare release."
+    },
+    {
+      "name": "hypseek-test-datasets",
+      "host_path": "{data_root}/HypSeek/test_datasets",
+      "container_path": "/data/test_datasets",
+      "prepare": "vendor/data_scripts/HypSeek/prepare_data.py",
+      "description": "DUD-E / DEKOIS 2.0x / LIT-PCBA processed bundles + manifest JSONs (LigUnity layout)."
+    },
+    {
+      "name": "hypseek-uniport-fasta",
+      "host_path": "{data_root}/HypSeek/uniport_fasta",
+      "container_path": "/data/uniport_fasta",
+      "prepare": "vendor/data_scripts/HypSeek/prepare_data.py",
+      "description": "UniProt FASTA cache derived from the generated test-set manifests, fetched from rest.uniprot.org."
+    }
+  ],
+  "install_cmds": [
+    "apt-get -o APT::Sandbox::User=root update -q && DEBIAN_FRONTEND=noninteractive apt-get -o APT::Sandbox::User=root install -y git wget unzip && rm -rf /var/lib/apt/lists/*",
+    "pip install lmdb tqdm wandb requests biopandas loguru scipy scikit-learn pandas rdkit-pypi transformers gdown 'numpy<2'",
+    "pip install unicore@git+https://github.com/dptech-corp/Uni-Core.git"
+  ],
+  "env": {
+    "PYTHONPATH": "/workspace:/workspace/unimol:${PYTHONPATH}",
+    "HOME": "/root",
+    "HF_HOME": "/data/hf_cache",
+    "TRANSFORMERS_OFFLINE": "1",
+    "HF_HUB_OFFLINE": "1"
+  },
+  "use_cuda": true,
+  "writable_tmpfs": true,
+  "no_home": true,
+  "workdir": "/workspace"
+}
