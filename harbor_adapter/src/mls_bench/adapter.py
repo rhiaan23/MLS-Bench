@@ -749,6 +749,28 @@ def render_task(
         )
     )
 
+    # GPU reservation: Harbor's base docker-compose only sets cpu/memory
+    # limits, not GPU. Tasks that declare `gpus > 0` in task.toml need a
+    # per-task compose override so docker actually attaches the nvidia
+    # runtime. Compose-merge with base happens via harbor/environments/
+    # docker/docker.py:292 picking up this file when present.
+    gpus_int = int(ctx.pkg_config.get("gpus") or 0) if not ctx.use_cuda else max(
+        1, int(ctx.pkg_config.get("gpus") or 1)
+    )
+    if ctx.use_cuda and gpus_int > 0:
+        (env_dir / "docker-compose.yaml").write_text(
+            "services:\n"
+            "  main:\n"
+            "    runtime: nvidia\n"
+            "    deploy:\n"
+            "      resources:\n"
+            "        reservations:\n"
+            "          devices:\n"
+            "            - driver: nvidia\n"
+            f"              count: {gpus_int}\n"
+            "              capabilities: [gpu]\n"
+        )
+
     # solution/ — Harbor mounts this at /solution/ only when the oracle agent runs.
     sol_dir = out_dir / "solution"
     sol_dir.mkdir()

@@ -96,15 +96,20 @@ Image build:`harbor_adapter/scripts/build_base_image.py --all --push`
 is running in the background, building all 65 per-package harbor base
 images. Current state:
 
-- ✅ **Pushed to Hub**: 10 confirmed in log
-  (`alphaflow-main`, `badge`, `basicts`, `causal-bnlearn`,
-  `causal-learn`, `chatdev-macnet`, `chebnetii`, `cleandiffuser`,
-  `cleanrl`, `climax`)
-- ⚠️ **Push reported error but manifest exists on Hub** (probably retry
-  succeeded): `cfgpp-main`, `climsim`, `continual-learning`, `corl`
-- ⏳ **Currently building**: `dbim-codebase` (463 GB data layer — bottleneck;
-  likely needs `data_deps: []` config fix like we did for Time-Series-Library)
-- ⌛ **Queued**: ~50 packages
+- ✅ **All 65 harbor base images pushed to Docker Hub** under
+  `bohanlyu2022/mlsbench-harbor-<pkg>:latest`.
+- The `dbim-codebase` data dir was originally 463 GB because a 400 GB
+  scratch `datasets/DIODE/` (raw tarball extract used only as input to a
+  one-time preprocessing step that produces the 4.1 GB `DIODE-256/`)
+  shipped under `vendor/data/dbim_data/`. After deleting it, the actual
+  data is 33 GB and the image is ~34 GB — well within Hub's per-layer
+  limit. `dbim-codebase` is on the Hub like the rest.
+- One MLS-Bench config bug fixed during the build:
+  `vendor/pkg_configs/dLLM-cache/config.json` had its
+  `dlm-dkv-hf-datasets` data_dep `host_path` pointing at a 6-byte
+  sentinel file (`.dlm-dkv-datasets-ready`) rather than the actual
+  `datasets/` directory. Repointed at the directory and moved the
+  sentinel under `ready_files`.
 
 Dataset render: validated end-to-end against the live build at the time
 of validation. After fresh build completes, re-render with:
@@ -158,9 +163,36 @@ Expect `Generated 140/140 tasks; 0 failed`.
 
 - AST OK across every `.py` under `harbor_adapter/`
 - Full render: 140 / 140 tasks, 0 failures
-- E2E with real Harbor binary (v0.6.6):
-  - Oracle on `causal-observational-linear-gaussian` → reward 0.026,
-    metrics byte-match `baseline:pc` leaderboard row
+- E2E with real Harbor binary (v0.6.6) on the oracle agent:
+  - `causal-observational-linear-gaussian` → reward 0.026, metrics
+    byte-match `baseline:pc` leaderboard row across all 5 eval cmds
+    (visible + hidden ER20-Noisy)
+  - `ml-clustering-algorithm` → reward 0.388, metrics byte-match
+    `baseline:kmeans` seed-42 row (< 0.5 because adapter's
+    `_pick_strongest_baseline` chose kmeans while `mlsbench.scoring`'s
+    bounded_power reference for this task is a different baseline)
+  - `ml-anomaly-detection` → reward 0.5016, metrics byte-match
+    `baseline:isolation_forest` seed-42 row (≈ 0.5 because oracle's
+    pick happens to coincide with `mlsbench.scoring`'s ref baseline;
+    `ref_score=0.5` anchors the strongest baseline at 0.5 by design)
   - Hostile out-of-range solve.sh → reward 0, violation file populated
 - Codex review against the diff: 9 substantive findings (1 critical,
   3 high, 5 medium), all addressed in this branch.
+
+## Real bugs caught during validation
+
+- **`test.sh` used `/usr/bin/python3`** as verifier interpreter. On
+  pytorch-based base images that's a bare Debian python with no numpy
+  / torch / pandas, so `budget_check.py` crashed
+  (`ModuleNotFoundError: numpy`) and oracle returned reward 0 with "no
+  metrics extracted from logs". Fixed by walking
+  `/opt/conda/bin/python3` → `/opt/miniconda3/bin/python3` →
+  `/usr/local/bin/python3` → `/usr/bin/python3` and adding the chosen
+  interpreter's bin dir back onto PATH so eval scripts that spawn
+  `python` inherit the right one. `-I` (isolated mode) still hardens
+  the verifier from agent-planted PYTHON* envs and user site.
+- **Harbor `[environment].gpus` is metadata only**: it doesn't attach
+  the nvidia runtime to the container. Tasks declared with
+  `use_cuda=true` now ship an `environment/docker-compose.yaml`
+  reserving GPU devices, which Harbor merges over its base compose
+  via `harbor/environments/docker/docker.py:292`.
