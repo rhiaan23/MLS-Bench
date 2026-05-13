@@ -631,7 +631,28 @@ def _resources(pkg_config: dict, config: dict) -> dict:
     cpus = 4
     memory_mb = 16 * 1024 if use_cuda else 8 * 1024
     storage_mb = 60 * 1024 if use_cuda else 30 * 1024
-    gpus = 1 if use_cuda else 0
+    # GPU count per task = max(ceil(test_cmds[i].compute)) across all test_cmds.
+    # Native MLS-Bench's scheduler treats `compute` as "fraction or count of
+    # GPUs this test_cmd needs"; values >= 1.0 are whole-GPU jobs (ceil),
+    # values < 1.0 are fractional sharing among multiple test_cmds via slurm
+    # batching. Harbor runs all test_cmds sequentially inside one container
+    # so we only need to reserve the peak (max) demand of any single
+    # test_cmd; fractional values still imply 1 GPU since the GPU isn't
+    # shared with anything else during that test_cmd's run.
+    import math
+    gpus = 0
+    if use_cuda:
+        max_compute = 0.0
+        for tc in config.get("test_cmds", []) or []:
+            try:
+                c = float(tc.get("compute", 1) or 1)
+            except (TypeError, ValueError):
+                c = 1.0
+            if c > max_compute:
+                max_compute = c
+        # >= 1.0 → ceil; < 1.0 (fractional sharing) → 1 since we run
+        # sequentially with full-GPU access per test_cmd.
+        gpus = max(1, math.ceil(max_compute)) if max_compute > 0 else 1
     return dict(cpus=cpus, memory_mb=memory_mb, storage_mb=storage_mb, gpus=gpus)
 
 
