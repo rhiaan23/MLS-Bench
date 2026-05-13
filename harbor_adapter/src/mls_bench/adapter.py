@@ -750,18 +750,17 @@ def render_task(
     )
 
     # GPU reservation: Harbor's base docker-compose only sets cpu/memory
-    # limits, not GPU. Tasks that declare `gpus > 0` in task.toml need a
-    # per-task compose override so docker actually attaches the nvidia
-    # runtime. Compose-merge with base happens via harbor/environments/
-    # docker/docker.py:292 picking up this file when present.
-    gpus_int = int(ctx.pkg_config.get("gpus") or 0) if not ctx.use_cuda else max(
-        1, int(ctx.pkg_config.get("gpus") or 1)
-    )
-    if ctx.use_cuda and gpus_int > 0:
+    # limits, not GPU. Tasks that resolve to `gpus > 0` need a per-task
+    # compose override so docker actually attaches the nvidia runtime.
+    # Compose-merge with base happens via harbor/environments/docker/
+    # docker.py:292 picking up this file when present. `res["gpus"]`
+    # comes from `_resources()` which honors both task config's `use_cuda`
+    # and the package config's `use_cuda` flag.
+    gpus_int = int(res.get("gpus") or 0)
+    if gpus_int > 0:
         (env_dir / "docker-compose.yaml").write_text(
             "services:\n"
             "  main:\n"
-            "    runtime: nvidia\n"
             "    deploy:\n"
             "      resources:\n"
             "        reservations:\n"
