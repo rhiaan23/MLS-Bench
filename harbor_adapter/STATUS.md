@@ -58,6 +58,41 @@ Two-tier images + verifier-side pristine baseline:
    lists labels for all `test_cmds` since native MLS-Bench's default
    (`hide_hidden=False`) returns hidden metrics to the agent.
 
+6. **In-container mini-scheduler** (`tests/score_task.py::cmd_run_evals`)
+   ports MLS-Bench's native parallel-scheduling logic into the Harbor
+   container. Harbor's docker env is not GPU-native (it allocates one
+   container per trial with a static GPU reservation; nothing
+   schedules processes across GPUs inside the container), so we ported
+   the relevant pieces of `mlsbench.scheduler.peak_gpus` and
+   `mlsbench.agent.tools._run_all_cmds_direct` /
+   `_allocate_group_gpu_assignments` / `_partition_group_gpu_batches`
+   into the verifier-side Python. Behavior:
+   - seeds run sequentially (outer loop)
+   - groups within a seed run sequentially in ascending order
+   - within a group, test_cmds launch in parallel via
+     `subprocess.Popen(start_new_session=True, …)` with a per-entry
+     `CUDA_VISIBLE_DEVICES` assignment (whole-GPU jobs first, then
+     pack fractional jobs into remaining per-GPU capacity)
+   - if a group's peak demand exceeds the reservation, wave-partition
+     into `_partition_group_gpu_batches`-style batches
+   - if any single test_cmd needs more GPUs than reserved, fail fast
+     for that entry only (rc=125); other entries still run
+   - per-wave deadline = `max(time) + 300s`; on expiry,
+     `os.killpg(pid, SIGTERM)` then `SIGKILL` after a 30s grace
+   - budget checks run serially before each group's parallel launch;
+     a failing budget check excludes that entry only
+
+7. **DockerGPUEnvironment plugin** (`mls_bench.harbor_env:
+   DockerGPUEnvironment`) is a subclass of Harbor's stock
+   `DockerEnvironment` that flips `capabilities.gpus = True`.
+   Loaded via Harbor's documented
+   `EnvironmentFactory.create_environment_from_import_path` extension
+   point (no Harbor fork, no site-packages patch). For each task with
+   `gpus > 0`, the adapter emits an `environment/docker-compose.yaml`
+   reserving nvidia devices via the standard
+   `deploy.resources.reservations.devices` block. `count` matches the
+   per-task peak from the new `_resources()`.
+
 ## Where files come from
 
 | Adapter file | Source |
@@ -132,11 +167,11 @@ Expect `Generated 140/140 tasks; 0 failed`.
    eval during its session** (eval scripts only exist in `/tests/`
    which is uploaded at verify time). This is stricter than native MLS.
 
-2. **`dbim-codebase` 463 GB data layer**. Same shape as the
-   Time-Series-Library issue we already fixed (data already baked into
-   the upstream `mlsbench-<pkg>:latest` image, no separate
-   `data_deps[]` needed for the harbor layer). Suggested fix: empty
-   `data_deps` in `vendor/pkg_configs/dbim-codebase/config.json`.
+2. (Resolved) `dbim-codebase`'s 463 GB was a stale 400 GB
+   preprocessing scratch (`datasets/DIODE/` — raw tarball extract used
+   only as input to a one-time `_preprocess_diode` step that emits the
+   4.1 GB `DIODE-256/`). Deleted; real ready_files total ~30 GB; the
+   harbor base image is ~34 GB and now on Hub.
 
 3. **Multi-package tasks** (`tasks/llm-pretrain-attention/` etc.) —
    each task currently picks ONE primary package for the image
@@ -154,10 +189,22 @@ Expect `Generated 140/140 tasks; 0 failed`.
 - `harbor_adapter/README.md` — short overview + critical invariants
 - `harbor_adapter/src/mls_bench/adapter.py::render_task` — entry point
   for per-task rendering (line ~702)
+- `harbor_adapter/src/mls_bench/adapter.py::_resources` — ports
+  native `peak_gpus` (per-group whole+ceil(fractional), max across
+  groups) — replaces the old `gpus = 1 if use_cuda else 0`
+- `harbor_adapter/src/mls_bench/task-template/tests/score_task.py::cmd_run_evals`
+  — the in-container mini-scheduler (seeds outer, group-sequential,
+  within-group parallel, first-fit GPU packing, wave fallback,
+  per-wave timeout with SIGTERM→SIGKILL)
 - `harbor_adapter/src/mls_bench/task-template/tests/score_task.py::cmd_guard`
   — the edit-range guard
+- `harbor_adapter/src/mls_bench/harbor_env.py` — the
+  `DockerGPUEnvironment` plugin (loaded via Harbor's
+  `--environment-import-path` extension point)
 - `harbor_adapter/scripts/build_base_image.py::build_one` — per-package
   harbor base build
+- `harbor_adapter/tests/test_scheduler.py` — 7 scheduler unit tests
+  (4 GPU-allocation fixtures + budget-fail + timeout + oversized-compute)
 
 ## Validation done so far
 
