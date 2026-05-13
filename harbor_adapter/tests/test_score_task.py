@@ -1,0 +1,146 @@
+from __future__ import annotations
+
+import importlib.util
+import json
+import sys
+import argparse
+from pathlib import Path
+
+
+def _load_score_task():
+    path = (
+        Path(__file__).resolve().parents[1]
+        / "src"
+        / "mls_bench"
+        / "task-template"
+        / "tests"
+        / "score_task.py"
+    )
+    spec = importlib.util.spec_from_file_location("score_task_under_test", path)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_edit_guard_rejects_deleted_fixed_separator_with_duplicate_in_editable(tmp_path: Path):
+    score_task = _load_score_task()
+    pristine = tmp_path / "pristine.py"
+    current = tmp_path / "current.py"
+
+    pristine.write_text(
+        "header\n"
+        "editable before\n"
+        "===\n"
+        "editable after\n"
+        "===\n"
+        "second editable\n"
+        "tail\n"
+    )
+    current.write_text(
+        "header\n"
+        "editable before\n"
+        "===\n"
+        "editable after\n"
+        "second editable\n"
+        "tail\n"
+    )
+
+    ranges = [score_task.EditRange(2, 4), score_task.EditRange(6, 6)]
+    ok, reason = score_task._check_editable_only(pristine, current, ranges)
+
+    assert not ok
+    assert reason is not None
+    assert "only the declared editable range" in reason
+
+
+def test_metric_aggregation_coerces_strings_and_filters_nan():
+    score_task = _load_score_task()
+
+    mean = score_task._aggregate_metrics([
+        {"acc": "0.5", "loss": float("nan")},
+        {"acc": 1.0, "loss": 7.0},
+    ])
+
+    assert mean["acc"] == 0.75
+    assert mean["loss"] == 7.0
+
+
+def test_metric_aggregation_preserves_all_nan_when_no_finite_values():
+    score_task = _load_score_task()
+
+    mean = score_task._aggregate_metrics([
+        {"acc": float("nan")},
+        {"acc": "nan"},
+    ])
+
+    assert mean["acc"] != mean["acc"]
+
+
+def test_sparse_seed_filter_drops_empty_and_elapsed_only_records():
+    score_task = _load_score_task()
+
+    valid = score_task._valid_seed_metric_records({
+        1: {},
+        2: {"elapsed_eval": 0.1},
+        3: {"acc": "0.5", "elapsed_eval": 0.2},
+    })
+
+    assert valid == [{"acc": "0.5", "elapsed_eval": 0.2}]
+
+
+def test_run_evals_records_elapsed_time(tmp_path: Path):
+    score_task = _load_score_task()
+    task_meta = tmp_path / "meta"
+    eval_root = tmp_path / "eval"
+    workspace = tmp_path / "workspace"
+    package = workspace / "pkg"
+    scripts = eval_root / "scripts"
+    task_meta.mkdir()
+    scripts.mkdir(parents=True)
+    package.mkdir(parents=True)
+    (task_meta / "config.json").write_text(json.dumps({
+        "test_cmds": [
+            {
+                "cmd": "scripts/eval.sh",
+                "label": "eval",
+                "package": "pkg",
+                "time": "0:01:00",
+                "compute": 1.0,
+            }
+        ],
+        "seeds": [123],
+    }))
+    (task_meta / "package").write_text("pkg\n")
+    (task_meta / "task_id").write_text("elapsed-task\n")
+    script = scripts / "eval.sh"
+    script.write_text("printf 'acc=0.5\\n'\n")
+
+    rc = score_task.cmd_run_evals(argparse.Namespace(
+        task_meta=str(task_meta),
+        workspace=str(workspace),
+        eval_root=str(eval_root),
+        out_dir=str(tmp_path / "out"),
+    ))
+    summary = json.loads((tmp_path / "out" / "eval_summary.json").read_text())
+
+    assert rc == 0
+    assert summary[0]["logs"][0]["seed"] == 123
+    assert isinstance(summary[0]["logs"][0]["elapsed"], float)
+    assert summary[0]["logs"][0]["elapsed"] >= 0.0
+
+
+def test_package_dir_matches_case_and_separators(tmp_path: Path):
+    score_task = _load_score_task()
+    workspace = tmp_path / "workspace"
+    actual = workspace / "Nano-GPT"
+    actual.mkdir(parents=True)
+
+    resolved = score_task._package_dir(
+        workspace,
+        "fallback",
+        {"package": "nano_gpt"},
+    )
+
+    assert resolved == actual

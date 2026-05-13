@@ -18,13 +18,5 @@
   "writable_tmpfs": true,
   "no_home": true,
   "workdir": "/workspace",
-  "data_deps": [
-    {
-      "name": "tslib_datasets",
-      "host_path": "{data_root}",
-      "container_path": "/data",
-      "prepare": "vendor/pkg_configs/Time-Series-Library/prepare_data.py",
-      "description": "Time-Series-Library benchmark datasets (ETT, weather, electricity, traffic, m4, PSM, MSL, SMAP, EthanolConcentration, FaceDetection, Handwriting)"
-    }
-  ]
+  "data_deps": []
 }
