@@ -10,7 +10,13 @@ n_concurrent_trials: 4
 quiet: false
 
 environment:
-  type: docker
+  # Use the adapter's DockerGPUEnvironment subclass so the existing
+  # docker daemon (with NVIDIA Container Toolkit) handles GPU tasks
+  # natively. Harbor's stock `type: docker` refuses any task with
+  # `gpus > 0`. The subclass only flips the GPU capability flag; CPU
+  # tasks behave identically. Switch to `type: docker` if you don't
+  # need GPU and don't want to install this adapter as a package.
+  import_path: mls_bench.harbor_env:DockerGPUEnvironment
   force_build: true
   delete: true
 
