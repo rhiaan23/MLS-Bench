@@ -422,6 +422,10 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--skip-if-pushed", action="store_true",
                    help="Skip packages whose harbor base image already exists "
                         "on the registry (resume-friendly).")
+    p.add_argument("--skip-pkg", action="append", default=[],
+                   help="Skip a package entirely (neither built nor pushed). "
+                        "Repeat for multiple packages. Matched case- and "
+                        "separator-insensitively against `vendor/pkg_configs/<pkg>`.")
     p.add_argument("--push-workers", type=int, default=2,
                    help="Number of concurrent `docker push` workers. The main "
                         "loop keeps building locally while pushes run in the "
@@ -436,6 +440,17 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Building harbor base images for {len(pkgs)} packages", file=sys.stderr)
     else:
         pkgs = [args.package]
+
+    if args.skip_pkg:
+        skip_norm = {_normalize_pkg_name(s) for s in args.skip_pkg}
+        before = len(pkgs)
+        pkgs = [p for p in pkgs if _normalize_pkg_name(p) not in skip_norm]
+        skipped = before - len(pkgs)
+        if skipped:
+            print(
+                f"--skip-pkg removed {skipped} package(s): {sorted(args.skip_pkg)}",
+                file=sys.stderr,
+            )
 
     summary = {"ok": [], "failed": [], "skipped": []}
     push_executor = None
