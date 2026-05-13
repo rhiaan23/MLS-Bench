@@ -3,7 +3,9 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import json
+import signal
 import sys
+import types
 from pathlib import Path
 
 
@@ -125,6 +127,10 @@ def _start_batches():
     return batches
 
 
+def _read_summary(args):
+    return json.loads((Path(args.out_dir) / "eval_summary.json").read_text())
+
+
 def test_tdmpc2_group_runs_three_parallel_launches_per_seed(monkeypatch, tmp_path: Path):
     score_task = _load_score_task()
     _install_fake_popen(monkeypatch, score_task)
@@ -233,3 +239,126 @@ def test_cv_3dgs_separate_groups_run_sequentially(monkeypatch, tmp_path: Path):
         ("stump", "0"),
     ]
     assert [len(batch) for batch in _start_batches()] == [1, 1, 1, 1]
+
+
+def test_budget_check_failure_does_not_abort_group(monkeypatch, tmp_path: Path):
+    score_task = _load_score_task()
+    _install_fake_popen(monkeypatch, score_task)
+    args = _write_task(
+        tmp_path,
+        {
+            "test_cmds": [
+                {"cmd": "scripts/first.sh", "label": "first", "group": 1, "compute": 0.33, "time": "0:01:00", "package": "pkg"},
+                {"cmd": "scripts/fail.sh", "label": "budget-fail", "group": 1, "compute": 0.33, "time": "0:01:00", "package": "pkg"},
+                {"cmd": "scripts/third.sh", "label": "third", "group": 1, "compute": 0.33, "time": "0:01:00", "package": "pkg"},
+            ],
+            "seeds": [42],
+        },
+        gpu_count=1,
+    )
+
+    def fake_budget_check(**kwargs):
+        if kwargs["label"] == "budget-fail":
+            return {"rc": 1, "log": str(tmp_path / "budget-fail.log")}
+        return {"rc": 0, "log": str(tmp_path / "budget-ok.log")}
+
+    monkeypatch.setattr(score_task, "_run_budget_check", fake_budget_check)
+
+    assert score_task.cmd_run_evals(args) == 0
+
+    starts = _start_records()
+    assert [(record["label"], record["cuda"]) for record in starts] == [
+        ("first", "0"),
+        ("third", "0"),
+    ]
+    summary = _read_summary(args)
+    assert summary[0]["logs"][0]["rc"] == 0
+    assert summary[1]["logs"][0]["rc"] != 0
+    assert summary[2]["logs"][0]["rc"] == 0
+
+
+def test_wave_timeout_kills_stuck_processes_with_sigterm_then_sigkill(monkeypatch, tmp_path: Path):
+    score_task = _load_score_task()
+    _install_fake_popen(monkeypatch, score_task)
+
+    class HangingPopen(FakePopen):
+        def poll(self):
+            FakePopen.records.append({
+                "event": "poll",
+                "label": self.env.get("ENV"),
+                "seed": self.env.get("SEED"),
+            })
+            return None
+
+        def wait(self, timeout=None):
+            return None
+
+    FakePopen.records = []
+    FakePopen.next_pid = 1000
+    monkeypatch.setattr(score_task.subprocess, "Popen", HangingPopen)
+    kill_calls = []
+
+    def fake_killpg(pid, sig):
+        kill_calls.append((pid, sig))
+
+    now = {"value": 0.0}
+
+    def fake_time():
+        now["value"] += 1000.0
+        return now["value"]
+
+    monkeypatch.setattr(score_task.os, "killpg", fake_killpg)
+    monkeypatch.setattr(
+        score_task,
+        "time",
+        types.SimpleNamespace(time=fake_time, sleep=lambda _seconds: None),
+    )
+    args = _write_task(
+        tmp_path,
+        {
+            "test_cmds": [
+                {"cmd": "scripts/one.sh", "label": "one", "group": 1, "compute": 1.0, "time": "00:00:01", "package": "pkg"},
+                {"cmd": "scripts/two.sh", "label": "two", "group": 1, "compute": 1.0, "time": "00:00:01", "package": "pkg"},
+            ],
+            "seeds": [42],
+        },
+        gpu_count=2,
+    )
+
+    assert score_task.cmd_run_evals(args) == 0
+
+    starts = _start_records()
+    assert [record["label"] for record in starts] == ["one", "two"]
+    assert kill_calls == [
+        (1000, signal.SIGTERM),
+        (1000, signal.SIGKILL),
+        (1001, signal.SIGTERM),
+        (1001, signal.SIGKILL),
+    ]
+    summary = _read_summary(args)
+    assert [entry["logs"][0]["rc"] for entry in summary] == [124, 124]
+    for entry in summary:
+        assert "[TIMEOUT]" in Path(entry["logs"][0]["log"]).read_text()
+
+
+def test_oversized_compute_is_rejected_before_launch(monkeypatch, tmp_path: Path):
+    score_task = _load_score_task()
+    _install_fake_popen(monkeypatch, score_task)
+    args = _write_task(
+        tmp_path,
+        {
+            "test_cmds": [
+                {"cmd": "scripts/oversized.sh", "label": "oversized", "group": 1, "compute": 8.0, "time": "0:01:00", "package": "pkg"},
+            ],
+            "seeds": [42],
+        },
+        gpu_count=4,
+    )
+
+    assert score_task.cmd_run_evals(args) == 0
+
+    assert _start_records() == []
+    summary = _read_summary(args)
+    record = summary[0]["logs"][0]
+    assert record["rc"] == 125
+    assert "requires 8 GPUs but only 4 reserved/visible" in Path(record["log"]).read_text()
