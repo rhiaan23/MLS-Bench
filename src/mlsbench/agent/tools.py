@@ -310,7 +310,7 @@ class WorkspaceTools:
             ts = datetime.now().strftime("%Y%m%d_%H%M%S")
             self.exp_name = f"{sanitized}_{ts}" if sanitized else ts
 
-        # Job scheduler executor (None = direct execution)
+        # Job scheduler executor (SlurmExecutor or LocalSchedulerExecutor)
         self._recover_pending_slurm = False  # set by resume to recover orphaned SLURM jobs
         self.slurm_executor = None
         if slurm_config:
@@ -327,6 +327,14 @@ class WorkspaceTools:
                     print("[info] Local GPU scheduler detected — test jobs will be submitted for GPU allocation")
             except ImportError:
                 pass
+        if self.slurm_executor is None:
+            raise RuntimeError(
+                "No scheduler available. Set 'slurm' in the agent config to use SlurmExecutor, "
+                "or start the local scheduler daemon with 'mlsbench scheduler start' before "
+                "invoking the agent. The native MLS-Bench pipeline requires either a SLURM "
+                "executor or the in-repo LocalSchedulerExecutor; the direct-execution fallback "
+                "has been removed."
+            )
 
         # Build the list of test_cmd entries (supports old single-string format too)
         self.test_cmd_entries: list[dict] = self._build_test_cmd_entries()
@@ -2854,7 +2862,7 @@ class WorkspaceTools:
     def _run_all_cmds(self, seed: int) -> tuple[list[str], dict, list[bool]]:
         """Run all test_cmds grouped by `group`, return (feedback_parts, all_metrics, hidden_flags).
 
-        Dispatches to SLURM or direct execution based on slurm_executor.
+        Dispatches to the configured scheduler executor.
         Elapsed times are stored in all_metrics as ``elapsed_<label>`` keys.
 
         ``hidden_flags`` is a parallel list to ``feedback_parts`` indicating
@@ -2863,131 +2871,7 @@ class WorkspaceTools:
         feedback string should be withheld from the agent during intermediate
         (non-final) test calls.
         """
-        if self.slurm_executor:
-            return self._run_all_cmds_slurm(seed)
-        else:
-            return self._run_all_cmds_direct(seed)
-
-    def _run_all_cmds_direct(self, seed: int) -> tuple[list[str], dict, list[bool]]:
-        """Run all test_cmds via direct apptainer execution (no SLURM).
-
-        Commands with the same `group` value run in parallel.
-        Different groups run sequentially in ascending order.
-
-        Returns ``(feedback_parts, all_metrics, hidden_flags)`` where
-        ``hidden_flags[i]`` is True when the corresponding test_cmd entry
-        has ``"hidden": true``.
-        """
-        grouped = self._group_entries()
-
-        feedback_parts: list[str] = []
-        hidden_flags: list[bool] = []
-        all_metrics: dict = {}
-
-        for group_key in sorted(grouped.keys()):
-            entries = grouped[group_key]
-            if len(entries) == 1:
-                fb, met, elapsed = self._run_single_cmd(
-                    entries[0],
-                    seed,
-                    self._default_gpu_assignment(entries[0]),
-                )
-                feedback_parts.append(fb)
-                hidden_flags.append(entries[0].get("hidden", False))
-                all_metrics.update(met)
-                label = entries[0].get("label", "test")
-                all_metrics[f"elapsed_{label}"] = round(elapsed, 1)
-            else:
-                if self.container_runtime == "docker" and self._is_rootless_docker():
-                    assignments = self._allocate_group_gpu_assignments(entries)
-                    if assignments is None:
-                        assignments = [self._default_gpu_assignment(entry) for entry in entries]
-                    distinct_assignments = {
-                        assignment for assignment in assignments
-                        if assignment and "," not in assignment
-                    }
-                    if len(distinct_assignments) > 1:
-                        results_by_idx: list[tuple[str, dict, float] | None] = [None] * len(entries)
-                        with ThreadPoolExecutor(max_workers=len(entries)) as executor:
-                            future_to_idx = {
-                                executor.submit(
-                                    self._run_docker_entries_in_session,
-                                    [entry],
-                                    seed,
-                                    [assignments[idx]],
-                                ): idx
-                                for idx, entry in enumerate(entries)
-                            }
-                            for future in as_completed(future_to_idx):
-                                idx = future_to_idx[future]
-                                try:
-                                    session_results = future.result()
-                                    results_by_idx[idx] = session_results[0]
-                                except Exception as exc:
-                                    label = entries[idx].get("label", "test")
-                                    cmd = entries[idx].get("cmd", "unknown")
-                                    results_by_idx[idx] = (
-                                        f"### {label} ({cmd})\n[ERROR] Command failed with exception: {exc}",
-                                        {},
-                                        0.0,
-                                    )
-                        results = [result if result is not None else ("", {}, 0.0) for result in results_by_idx]
-                    else:
-                        results = self._run_docker_entries_in_session(
-                            entries,
-                            seed,
-                            gpu_assignments=assignments,
-                        )
-                    for (fb, met, elapsed), entry in zip(results, entries):
-                        feedback_parts.append(fb)
-                        hidden_flags.append(entry.get("hidden", False))
-                        all_metrics.update(met)
-                        label = entry.get("label", "test")
-                        all_metrics[f"elapsed_{label}"] = round(elapsed, 1)
-                    continue
-
-                batches = self._partition_group_gpu_batches(entries)
-                if batches is None:
-                    print(
-                        f"[test] Group {group_key} needs more GPUs than visible; "
-                        "falling back to sequential execution.",
-                    )
-                    results = [
-                        self._run_single_cmd(entry, seed, self._default_gpu_assignment(entry))
-                        for entry in entries
-                    ]
-                else:
-                    if len(batches) > 1:
-                        print(
-                            f"[test] Group {group_key} exceeds visible GPUs; "
-                            f"running in {len(batches)} waves.",
-                        )
-                    results = []
-                    for batch_entries, batch_assignments in batches:
-                        if len(batch_entries) == 1:
-                            results.append(
-                                self._run_single_cmd(
-                                    batch_entries[0],
-                                    seed,
-                                    batch_assignments[0] if batch_assignments else None,
-                                )
-                            )
-                        else:
-                            results.extend(
-                                self._run_parallel_cmds(
-                                    batch_entries,
-                                    seed,
-                                    gpu_assignments=batch_assignments,
-                                )
-                            )
-                for (fb, met, elapsed), entry in zip(results, entries):
-                    feedback_parts.append(fb)
-                    hidden_flags.append(entry.get("hidden", False))
-                    all_metrics.update(met)
-                    label = entry.get("label", "test")
-                    all_metrics[f"elapsed_{label}"] = round(elapsed, 1)
-
-        return feedback_parts, all_metrics, hidden_flags
+        return self._run_all_cmds_slurm(seed)
 
     @staticmethod
     def _split_into_sub_jobs(entries: list[dict]) -> list[list[dict]]:
@@ -3033,8 +2917,7 @@ class WorkspaceTools:
         Only returns dirs whose SLURM job is still active (PENDING/RUNNING)
         or already COMPLETED.  CANCELLED/FAILED jobs are skipped.
         """
-        if not self.slurm_executor:
-            return None
+        assert self.slurm_executor is not None
         target_name = f"group_{group_key}{suffix}"
         task_logs = self.slurm_executor.logs_dir / self.task_name
 
@@ -3600,22 +3483,13 @@ class WorkspaceTools:
             all_feedback_parts.extend(feedback_parts)
             all_hidden_flags.extend(hidden_flags)
             all_seed_metrics.append(metrics)
-        elif len(seeds_to_run) > 1 and self.slurm_executor:
-            # SLURM multi-seed: global bin-packing across all seeds
+        elif len(seeds_to_run) > 1:
+            # Scheduler multi-seed: global bin-packing across all seeds
             seed_results = self._run_all_seeds_slurm(seeds_to_run)
             for seed in seeds_to_run:
                 feedback_parts, metrics, hidden_flags = seed_results[seed]
                 all_feedback_parts.append(f"\n## Seed {seed}")
                 all_hidden_flags.append(False)  # seed header is never hidden
-                all_feedback_parts.extend(feedback_parts)
-                all_hidden_flags.extend(hidden_flags)
-                all_seed_metrics.append(metrics)
-        else:
-            # Sequential: Docker mode, each seed uses the same GPUs
-            for seed in seeds_to_run:
-                all_feedback_parts.append(f"\n## Seed {seed}")
-                all_hidden_flags.append(False)  # seed header is never hidden
-                feedback_parts, metrics, hidden_flags = self._run_all_cmds(seed)
                 all_feedback_parts.extend(feedback_parts)
                 all_hidden_flags.extend(hidden_flags)
                 all_seed_metrics.append(metrics)
