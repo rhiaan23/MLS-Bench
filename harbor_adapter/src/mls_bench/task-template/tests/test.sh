@@ -24,19 +24,36 @@ unset PYTHONPATH PYTHONHOME PYTHONSTARTUP PYTHONUSERBASE \
       PYTHONNOUSERSITE PYTHONIOENCODING PYTHONHASHSEED \
       LD_PRELOAD LD_LIBRARY_PATH LD_AUDIT
 export PYTHONNOUSERSITE=1
-# Prefer the python that lives inside the package base image. /usr/bin/python3
-# is what shipped with the base OS (Debian); /opt/conda/bin/python3 etc. live
-# on the pytorch base; either is a system path the agent shouldn't write to
-# unless they were already root, in which case all bets are off. We still
-# pass -I (isolated mode) on every invocation: no user site, ignore PYTHON*
-# envs, ignore current directory on sys.path.
-PYTHON_BIN=/usr/bin/python3
-if [ ! -x "${PYTHON_BIN}" ]; then
-    PYTHON_BIN=/usr/local/bin/python3
+# Prefer the python that owns the package's ML stack (numpy / torch / pandas
+# / etc.) — that's the one budget_check.py and mlsbench.scoring need. The
+# pytorch-based base images ship conda at /opt/conda; the system /usr/bin
+# python is usually a bare Debian python without scientific deps.
+#
+# We still pass -I (isolated mode) on every invocation so the agent's
+# planted PYTHON* envs, user site, and current directory are not on
+# sys.path — `-I` does NOT disable system site-packages, so /opt/conda's
+# numpy/torch remain importable.
+for candidate in \
+        /opt/conda/bin/python3 \
+        /opt/conda/bin/python \
+        /opt/miniconda3/bin/python3 \
+        /opt/miniconda3/bin/python \
+        /usr/local/bin/python3 \
+        /usr/bin/python3; do
+    if [ -x "${candidate}" ]; then
+        PYTHON_BIN="${candidate}"
+        break
+    fi
+done
+if [ -z "${PYTHON_BIN:-}" ]; then
+    PYTHON_BIN=$(command -v python3 2>/dev/null || command -v python)
 fi
-if [ ! -x "${PYTHON_BIN}" ]; then
-    PYTHON_BIN=$(command -v python3)
-fi
+# Add the chosen interpreter's bin dir to PATH so child processes spawned by
+# eval scripts inherit it instead of /usr/bin/python.
+case ":$PATH:" in
+    *:"$(dirname "${PYTHON_BIN}")":*) :;;
+    *) export PATH="$(dirname "${PYTHON_BIN}"):${PATH}";;
+esac
 export MLSBENCH_VERIFIER_PYTHON="${PYTHON_BIN}"
 
 # Snapshot the verifier python's integrity so a tampered binary is at least
