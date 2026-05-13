@@ -541,12 +541,16 @@ def _visible_gpu_indices(task_meta: Path, config: dict) -> list[str]:
     if reserved <= 0:
         return []
 
-    raw = os.environ.get("CUDA_VISIBLE_DEVICES", "")
-    if raw and raw.lower() not in {"all", "none", "void", "-1"}:
-        devices = [d.strip() for d in raw.split(",") if d.strip()]
-        if devices:
-            return devices[:reserved]
-
+    # Source-of-truth ordering inside the container:
+    #   1. nvidia-smi — reflects what nvidia-container-runtime actually
+    #      attached via docker-compose `deploy.resources.reservations`.
+    #      Authoritative.
+    #   2. CUDA_VISIBLE_DEVICES env var — many base images (pytorch/conda)
+    #      pre-set this to "0" as a single-GPU default. Trusting that
+    #      env var would silently cap our scheduler at 1 GPU even when
+    #      docker actually exposes more. Only use as a fallback when
+    #      nvidia-smi is unavailable.
+    #   3. range(reserved) — last-resort fallback.
     try:
         out = subprocess.run(
             ["nvidia-smi", "--query-gpu=index", "--format=csv,noheader"],
@@ -560,6 +564,12 @@ def _visible_gpu_indices(task_meta: Path, config: dict) -> list[str]:
             return devices[:reserved]
     except Exception:
         pass
+
+    raw = os.environ.get("CUDA_VISIBLE_DEVICES", "")
+    if raw and raw.lower() not in {"all", "none", "void", "-1"}:
+        devices = [d.strip() for d in raw.split(",") if d.strip()]
+        if devices:
+            return devices[:reserved]
 
     return [str(i) for i in range(reserved)]
 
