@@ -18,6 +18,7 @@ import json
 import os
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -422,28 +423,6 @@ def _normalize_pkg_name(name: str) -> str:
     return str(name).lower().replace("-", "").replace("_", "")
 
 
-def _copy_task_meta_for_budget(task_meta: Path, workspace_root: Path) -> None:
-    destinations = {workspace_root / "_task", Path("/workspace/_task")}
-    for dst in destinations:
-        try:
-            if dst.exists():
-                if dst.is_dir():
-                    shutil.rmtree(dst)
-                else:
-                    dst.unlink()
-            dst.mkdir(parents=True, exist_ok=True)
-            for name in ("config.json", "budget_check.py"):
-                src = task_meta / name
-                if src.exists():
-                    shutil.copy2(src, dst / name)
-            for name in ("edits", "scripts"):
-                src = task_meta / name
-                if src.exists():
-                    shutil.copytree(src, dst / name, dirs_exist_ok=True)
-        except OSError:
-            continue
-
-
 def _eval_env(
     *,
     task_meta: Path,
@@ -485,6 +464,247 @@ def _eval_env(
     return env
 
 
+def _parse_time_to_seconds(time_str: str) -> int:
+    parts = str(time_str).split(":")
+    try:
+        if len(parts) == 3:
+            return int(parts[0]) * 3600 + int(parts[1]) * 60 + int(parts[2])
+        if len(parts) == 2:
+            return int(parts[0]) * 60 + int(parts[1])
+        return int(float(parts[0]))
+    except (ValueError, IndexError):
+        return 3600
+
+
+def _test_cmd_compute(tc: dict) -> float:
+    try:
+        return float(tc.get("compute", 1) or 1)
+    except (TypeError, ValueError):
+        return 1.0
+
+
+def _group_entries(test_cmds: list[dict]) -> dict[int, list[tuple[int, dict]]]:
+    auto_group = 10000
+    grouped: dict[int, list[tuple[int, dict]]] = {}
+    for idx, entry in enumerate(test_cmds):
+        group = entry.get("group")
+        if group is None:
+            group = auto_group
+            auto_group += 1
+        grouped.setdefault(group, []).append((idx, entry))
+    return grouped
+
+
+def _infer_reserved_gpu_count(config: dict) -> int:
+    if config.get("use_cuda") is False:
+        return 0
+    test_cmds = list(config.get("test_cmds", []) or [])
+    if not config.get("use_cuda") and not any("compute" in tc for tc in test_cmds):
+        return 0
+
+    peak_gpus = 0
+    for entries in _group_entries(test_cmds).values():
+        whole_sum = 0
+        fractional_sum = 0.0
+        for _, tc in entries:
+            compute = _test_cmd_compute(tc)
+            if compute >= 1.0:
+                whole_sum += max(1, math.ceil(compute))
+            elif compute > 0.0:
+                fractional_sum += compute
+        peak_gpus = max(peak_gpus, whole_sum + max(0, math.ceil(fractional_sum)))
+    return max(1, peak_gpus) if peak_gpus else 0
+
+
+def _reserved_gpu_count(task_meta: Path, config: dict) -> int:
+    p = task_meta / "gpu_count"
+    if p.exists():
+        try:
+            return max(0, int(p.read_text().strip() or "0"))
+        except ValueError:
+            pass
+    return _infer_reserved_gpu_count(config)
+
+
+def _visible_gpu_indices(task_meta: Path, config: dict) -> list[str]:
+    reserved = _reserved_gpu_count(task_meta, config)
+    if reserved <= 0:
+        return []
+
+    raw = os.environ.get("CUDA_VISIBLE_DEVICES", "")
+    if raw and raw.lower() not in {"all", "none", "void", "-1"}:
+        devices = [d.strip() for d in raw.split(",") if d.strip()]
+        if devices:
+            return devices[:reserved]
+
+    try:
+        out = subprocess.run(
+            ["nvidia-smi", "--query-gpu=index", "--format=csv,noheader"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+        devices = [line.strip() for line in out.stdout.splitlines() if line.strip()]
+        if devices:
+            return devices[:reserved]
+    except Exception:
+        pass
+
+    return [str(i) for i in range(reserved)]
+
+
+def _entry_gpu_need(entry: dict) -> int:
+    compute = _test_cmd_compute(entry["tc"])
+    if compute <= 0.0:
+        return 0
+    if compute >= 1.0:
+        return max(1, math.ceil(compute))
+    return 1
+
+
+def _try_allocate_entry_to_remaining(
+    entry: dict,
+    remaining: dict[str, float],
+) -> str | None:
+    compute = _test_cmd_compute(entry["tc"])
+    if compute <= 0.0:
+        return None
+    if compute >= 1.0:
+        need = max(1, math.ceil(compute))
+        free = [device for device, cap in remaining.items() if cap >= 1.0]
+        if len(free) < need:
+            return None
+        chosen = free[:need]
+        for device in chosen:
+            remaining[device] = 0.0
+        return ",".join(chosen)
+
+    chosen = next((device for device, cap in remaining.items() if cap >= compute), None)
+    if chosen is None:
+        return None
+    remaining[chosen] -= compute
+    return chosen
+
+
+def _allocate_group_gpu_assignments(
+    entries: list[dict],
+    devices: list[str],
+) -> list[str | None] | None:
+    if not devices:
+        return [None] * len(entries)
+
+    assignments: list[str | None] = [None] * len(entries)
+    remaining = {device: 1.0 for device in devices}
+    indexed = list(enumerate(entries))
+    indexed.sort(key=lambda item: 0 if _test_cmd_compute(item[1]["tc"]) >= 1.0 else 1)
+
+    for idx, entry in indexed:
+        assignment = _try_allocate_entry_to_remaining(entry, remaining)
+        if assignment is None and _entry_gpu_need(entry) > 0:
+            return None
+        assignments[idx] = assignment
+    return assignments
+
+
+def _partition_group_gpu_batches(
+    entries: list[dict],
+    devices: list[str],
+) -> list[tuple[list[dict], list[str | None]]] | None:
+    if not devices:
+        return [(list(entries), [None] * len(entries))]
+
+    batches: list[tuple[list[dict], list[str | None]]] = []
+    current: list[dict] = []
+    for entry in entries:
+        trial = [*current, entry]
+        if _allocate_group_gpu_assignments(trial, devices) is None:
+            if not current:
+                return None
+            assignments = _allocate_group_gpu_assignments(current, devices)
+            if assignments is None:
+                return None
+            batches.append((current, assignments))
+            current = [entry]
+            if _allocate_group_gpu_assignments(current, devices) is None:
+                return None
+        else:
+            current = trial
+
+    if current:
+        assignments = _allocate_group_gpu_assignments(current, devices)
+        if assignments is None:
+            return None
+        batches.append((current, assignments))
+    return batches
+
+
+def _process_group_alive(pgid: int) -> bool:
+    try:
+        os.killpg(pgid, 0)
+        return True
+    except PermissionError:
+        return True
+    except OSError:
+        return False
+
+
+def _kill_process_group(pgid: int, timeout: float = 30.0) -> None:
+    try:
+        os.killpg(pgid, signal.SIGTERM)
+    except OSError:
+        return
+
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if not _process_group_alive(pgid):
+            return
+        time.sleep(0.5)
+
+    try:
+        os.killpg(pgid, signal.SIGKILL)
+    except OSError:
+        pass
+
+
+def _copy_task_meta_for_budget(task_meta: Path, scratch_dir: Path) -> None:
+    scratch_dir.mkdir(parents=True, exist_ok=True)
+    for name in ("config.json", "budget_check.py"):
+        src = task_meta / name
+        if src.exists():
+            shutil.copy2(src, scratch_dir / name)
+    for name in ("edits", "scripts"):
+        src = task_meta / name
+        if src.exists():
+            shutil.copytree(src, scratch_dir / name, dirs_exist_ok=True)
+
+
+def _install_budget_legacy_links(scratch_dir: Path, workspace_root: Path) -> list[Path]:
+    links: list[Path] = []
+    for dst in {workspace_root / "_task", Path("/workspace/_task")}:
+        try:
+            if dst.exists() or dst.is_symlink():
+                if dst.is_dir() and not dst.is_symlink():
+                    shutil.rmtree(dst)
+                else:
+                    dst.unlink()
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            os.symlink(scratch_dir, dst, target_is_directory=True)
+            links.append(dst)
+        except OSError:
+            continue
+    return links
+
+
+def _remove_budget_legacy_links(links: list[Path]) -> None:
+    for link in links:
+        try:
+            if link.is_symlink():
+                link.unlink()
+        except OSError:
+            pass
+
+
 def _run_budget_check(
     *,
     task_meta: Path,
@@ -495,10 +715,8 @@ def _run_budget_check(
     seed: int,
     env: dict[str, str],
 ) -> dict | None:
-    budget_script = task_meta / "budget_check.py"
-    if not budget_script.exists():
+    if not (task_meta / "budget_check.py").exists():
         return None
-    _copy_task_meta_for_budget(task_meta, workspace_root)
     log_path = out_dir / f"{label}__seed{seed}__budget_check.log"
     # Use the same hardened interpreter as test.sh — MLSBENCH_VERIFIER_PYTHON
     # is exported by test.sh after PATH reset; falls back to sys.executable
@@ -508,12 +726,20 @@ def _run_budget_check(
     # PYTHONPATH from the package env (e.g. to import the model defined under
     # /workspace/<pkg>/). We rely on the env dict being verifier-controlled
     # — test.sh stripped agent-planted PYTHONPATH before this script runs.
+    safe_label = re.sub(r"[^A-Za-z0-9_.-]+", "-", label)[:64] or "test"
+    scratch_dir = Path(tempfile.mkdtemp(prefix=f"mlsbench-budget-{safe_label}-{seed}-"))
+    legacy_links: list[Path] = []
     with log_path.open("w") as fh:
         try:
+            _copy_task_meta_for_budget(task_meta, scratch_dir)
+            legacy_links = _install_budget_legacy_links(scratch_dir, workspace_root)
+            budget_env = env.copy()
+            budget_env["TMPDIR"] = str(scratch_dir)
+            budget_env["MLSBENCH_TASK_DIR"] = str(scratch_dir)
             proc = subprocess.run(
-                [python_bin, str(budget_script)],
+                [python_bin, str(scratch_dir / "budget_check.py")],
                 cwd=str(pkg_dir),
-                env=env,
+                env=budget_env,
                 stdout=fh,
                 stderr=subprocess.STDOUT,
                 timeout=120,
@@ -523,7 +749,144 @@ def _run_budget_check(
         except subprocess.TimeoutExpired:
             fh.write("\n[BUDGET CHECK TIMEOUT] budget_check.py took >120s\n")
             rc = 124
+        except Exception as exc:
+            fh.write(f"\n[BUDGET CHECK ERROR] {exc}\n")
+            rc = 125
+        finally:
+            _remove_budget_legacy_links(legacy_links)
+            shutil.rmtree(scratch_dir, ignore_errors=True)
     return {"rc": rc, "log": str(log_path)}
+
+
+def _eval_log_path(out_dir: Path, label: str, seed: int) -> Path:
+    return out_dir / f"{label}__seed{seed}.log"
+
+
+def _append_error_record(
+    summary: list[dict],
+    out_dir: Path,
+    entry: dict,
+    seed: int,
+    message: str,
+    rc: int,
+) -> None:
+    log_path = _eval_log_path(out_dir, entry["label"], seed)
+    log_path.write_text(message.rstrip() + "\n")
+    summary[entry["idx"]]["logs"].append({
+        "seed": seed,
+        "rc": rc,
+        "log": str(log_path),
+        "elapsed": 0.0,
+    })
+
+
+def _finish_process_record(state: dict, seed: int, rc: int | None = None) -> dict:
+    if rc is None:
+        rc = state["proc"].returncode
+    if rc is None:
+        rc = 124
+    elapsed = time.time() - state["start"]
+    try:
+        state["fh"].close()
+    except OSError:
+        pass
+    return {
+        "seed": seed,
+        "rc": rc,
+        "log": str(state["log_path"]),
+        "elapsed": elapsed,
+    }
+
+
+def _run_eval_wave(
+    *,
+    entries: list[dict],
+    assignments: list[str | None],
+    seed: int,
+    task_meta: Path,
+    workspace_root: Path,
+    default_pkg: str,
+    out_dir: Path,
+) -> dict[int, dict]:
+    timeout_secs = max(
+        _parse_time_to_seconds(entry["tc"].get("time", "1:00:00"))
+        for entry in entries
+    ) + 300
+    deadline = time.time() + timeout_secs
+    running: list[dict] = []
+    results: dict[int, dict] = {}
+
+    for entry, gpu_devices in zip(entries, assignments):
+        log_path = _eval_log_path(out_dir, entry["label"], seed)
+        pkg_dir = _package_dir(workspace_root, default_pkg, entry["tc"])
+        env = _eval_env(
+            task_meta=task_meta,
+            out_dir=out_dir,
+            workspace_root=workspace_root,
+            pkg_dir=pkg_dir,
+            tc=entry["tc"],
+            seed=seed,
+        )
+        if gpu_devices:
+            env["CUDA_VISIBLE_DEVICES"] = gpu_devices
+            env["NVIDIA_VISIBLE_DEVICES"] = gpu_devices
+        fh = log_path.open("w")
+        t_start = time.time()
+        try:
+            proc = subprocess.Popen(
+                ["bash", str(entry["script"])],
+                cwd=str(pkg_dir),
+                env=env,
+                stdout=fh,
+                stderr=subprocess.STDOUT,
+                start_new_session=True,
+            )
+        except Exception as exc:
+            fh.write(f"[ERROR] failed to start eval command: {exc}\n")
+            fh.close()
+            results[entry["idx"]] = {
+                "seed": seed,
+                "rc": 127,
+                "log": str(log_path),
+                "elapsed": time.time() - t_start,
+            }
+            continue
+        running.append({
+            "entry": entry,
+            "proc": proc,
+            "fh": fh,
+            "start": t_start,
+            "log_path": log_path,
+        })
+
+    while running and time.time() < deadline:
+        still_running: list[dict] = []
+        for state in running:
+            rc = state["proc"].poll()
+            if rc is None:
+                still_running.append(state)
+            else:
+                results[state["entry"]["idx"]] = _finish_process_record(state, seed, rc)
+        running = still_running
+        if running:
+            time.sleep(0.5)
+
+    for state in running:
+        try:
+            state["fh"].write(
+                f"\n[TIMEOUT] Command timed out after {timeout_secs} seconds.\n"
+            )
+            state["fh"].flush()
+        except OSError:
+            pass
+        _kill_process_group(state["proc"].pid, timeout=30.0)
+        try:
+            state["proc"].wait(timeout=1)
+        except Exception:
+            pass
+        results[state["entry"]["idx"]] = _finish_process_record(state, seed, 124)
+
+    return results
 
 
 def cmd_run_evals(args: argparse.Namespace) -> int:
@@ -539,10 +902,15 @@ def cmd_run_evals(args: argparse.Namespace) -> int:
     seeds = config.get("seeds") or [42]
     if isinstance(seeds, int):
         seeds = [seeds]
+    seeds = [int(seed) for seed in seeds]
 
-    summary = []
-    for tc in test_cmds:
-        cmd_rel = tc["cmd"]
+    summary = [
+        {"label": tc.get("label", tc.get("cmd", "test")), "hidden": bool(tc.get("hidden")), "logs": []}
+        for tc in test_cmds
+    ]
+    prepared: dict[int, dict] = {}
+    for idx, tc in enumerate(test_cmds):
+        cmd_rel = tc.get("cmd", "")
         label = tc.get("label", cmd_rel)
         # _safe_join rejects absolute paths, `..` traversal, and Windows
         # backslashes — without it, a hostile config could point at
@@ -550,64 +918,142 @@ def cmd_run_evals(args: argparse.Namespace) -> int:
         try:
             script = Path(_safe_join(eval_root, cmd_rel))
         except ValueError as exc:
-            summary.append({"label": label, "status": f"unsafe_cmd_path: {exc}", "logs": []})
+            entry = {"idx": idx, "tc": tc, "label": label}
+            for seed in seeds:
+                _append_error_record(
+                    summary,
+                    out_dir,
+                    entry,
+                    seed,
+                    f"[ERROR] unsafe_cmd_path: {exc}",
+                    126,
+                )
             continue
         if not script.exists():
-            summary.append({"label": label, "status": "missing_script", "logs": []})
+            entry = {"idx": idx, "tc": tc, "label": label}
+            for seed in seeds:
+                _append_error_record(
+                    summary,
+                    out_dir,
+                    entry,
+                    seed,
+                    f"[ERROR] missing_script: {cmd_rel}",
+                    127,
+                )
             continue
-        logs = []
-        for seed in seeds:
-            log_path = out_dir / f"{label}__seed{seed}.log"
-            pkg_dir = _package_dir(workspace_root, default_pkg, tc)
-            env = _eval_env(
-                task_meta=task_meta,
-                out_dir=out_dir,
-                workspace_root=workspace_root,
-                pkg_dir=pkg_dir,
-                tc=tc,
-                seed=int(seed),
-            )
-            budget = _run_budget_check(
-                task_meta=task_meta,
-                workspace_root=workspace_root,
-                pkg_dir=pkg_dir,
-                out_dir=out_dir,
-                label=label,
-                seed=int(seed),
-                env=env,
-            )
-            if budget and budget["rc"] != 0:
-                log_path.write_text(
-                    f"[BUDGET CHECK FAILED]\nSee {budget['log']}\n"
-                )
-                logs.append({
-                    "seed": seed,
-                    "rc": budget["rc"],
-                    "log": str(log_path),
-                    "budget_log": budget["log"],
-                    "elapsed": 0.0,
-                })
-                (out_dir / "budget_violation.txt").write_text(
-                    f"{label} seed {seed} failed budget_check.py; see {budget['log']}\n"
-                )
+        prepared[idx] = {"idx": idx, "tc": tc, "label": label, "script": script}
+
+    grouped = _group_entries(test_cmds)
+    devices = _visible_gpu_indices(task_meta, config)
+    n_reserved = len(devices)
+
+    for seed in seeds:
+        for group_key in sorted(grouped.keys()):
+            group_entries = [
+                prepared[idx]
+                for idx, _ in grouped[group_key]
+                if idx in prepared
+            ]
+            if not group_entries:
                 continue
-            t_start = time.time()
-            with log_path.open("w") as fh:
-                proc = subprocess.run(
-                    ["bash", str(script)],
-                    cwd=str(pkg_dir),
-                    env=env,
-                    stdout=fh, stderr=subprocess.STDOUT,
-                    check=False,
+
+            budget_candidates: list[dict] = []
+            for entry in group_entries:
+                need = _entry_gpu_need(entry)
+                if n_reserved > 0 and need > n_reserved:
+                    _append_error_record(
+                        summary,
+                        out_dir,
+                        entry,
+                        seed,
+                        (
+                            "[ERROR] test_cmd compute requires "
+                            f"{need} GPUs but only {n_reserved} reserved/visible"
+                        ),
+                        125,
+                    )
+                else:
+                    budget_candidates.append(entry)
+
+            runnable: list[dict] = []
+            for entry in budget_candidates:
+                pkg_dir = _package_dir(workspace_root, default_pkg, entry["tc"])
+                env = _eval_env(
+                    task_meta=task_meta,
+                    out_dir=out_dir,
+                    workspace_root=workspace_root,
+                    pkg_dir=pkg_dir,
+                    tc=entry["tc"],
+                    seed=seed,
                 )
-            elapsed = time.time() - t_start
-            logs.append({
-                "seed": seed,
-                "rc": proc.returncode,
-                "log": str(log_path),
-                "elapsed": elapsed,
-            })
-        summary.append({"label": label, "hidden": bool(tc.get("hidden")), "logs": logs})
+                budget = _run_budget_check(
+                    task_meta=task_meta,
+                    workspace_root=workspace_root,
+                    pkg_dir=pkg_dir,
+                    out_dir=out_dir,
+                    label=entry["label"],
+                    seed=seed,
+                    env=env,
+                )
+                if budget and budget["rc"] != 0:
+                    _append_error_record(
+                        summary,
+                        out_dir,
+                        entry,
+                        seed,
+                        f"[BUDGET CHECK FAILED]\nSee {budget['log']}",
+                        int(budget["rc"]),
+                    )
+                    with (out_dir / "budget_violation.txt").open("a") as fh:
+                        fh.write(
+                            f"{entry['label']} seed {seed} failed budget_check.py; "
+                            f"see {budget['log']}\n"
+                        )
+                    continue
+                runnable.append(entry)
+
+            if not runnable:
+                continue
+
+            batches = _partition_group_gpu_batches(runnable, devices)
+            if batches is None:
+                for entry in runnable:
+                    _append_error_record(
+                        summary,
+                        out_dir,
+                        entry,
+                        seed,
+                        (
+                            "[ERROR] unable to allocate GPUs for test_cmd "
+                            f"with compute={_test_cmd_compute(entry['tc'])}"
+                        ),
+                        125,
+                    )
+                continue
+
+            for wave_entries, assignments in batches:
+                wave_results = _run_eval_wave(
+                    entries=wave_entries,
+                    assignments=assignments,
+                    seed=seed,
+                    task_meta=task_meta,
+                    workspace_root=workspace_root,
+                    default_pkg=default_pkg,
+                    out_dir=out_dir,
+                )
+                for entry in wave_entries:
+                    record = wave_results.get(entry["idx"])
+                    if record is None:
+                        _append_error_record(
+                            summary,
+                            out_dir,
+                            entry,
+                            seed,
+                            "[ERROR] eval command produced no result",
+                            125,
+                        )
+                    else:
+                        summary[entry["idx"]]["logs"].append(record)
 
     (out_dir / "eval_summary.json").write_text(json.dumps(summary, indent=2))
     return 0

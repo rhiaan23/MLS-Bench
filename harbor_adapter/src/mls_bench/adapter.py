@@ -4,6 +4,7 @@ from __future__ import annotations
 import csv
 import hashlib
 import json
+import math
 import os
 import re
 import shutil
@@ -619,11 +620,36 @@ def _agent_timeout_sec(config: dict) -> int:
     return max(30 * 60, min(4 * 3600, visible_total // 2 or 30 * 60))
 
 
+def _group_test_cmds(test_cmds: list[dict]) -> dict[int, list[dict]]:
+    grouped: dict[int, list[dict]] = {}
+    auto_group = 10000
+    for tc in test_cmds:
+        group = tc.get("group")
+        if group is None:
+            group = auto_group
+            auto_group += 1
+        grouped.setdefault(group, []).append(tc)
+    return grouped
+
+
+def _test_cmd_compute(tc: dict) -> float:
+    try:
+        return float(tc.get("compute", 1) or 1)
+    except (TypeError, ValueError):
+        return 1.0
+
+
 def _verifier_timeout_sec(config: dict) -> int:
-    # Sum of ALL test_cmd time (visible + hidden) × multi-seed factor + 30 min headroom.
-    total = sum(_parse_time(tc.get("time", "0:30:00")) for tc in config.get("test_cmds", []))
+    # Grouped test_cmds run concurrently inside each seed, so charge each group
+    # by its slowest member rather than summing every member sequentially.
+    test_cmds = list(config.get("test_cmds", []) or [])
+    grouped = _group_test_cmds(test_cmds)
+    total = sum(
+        max(_parse_time(tc.get("time", "0:30:00")) for tc in entries)
+        for entries in grouped.values()
+    )
     n_seeds = max(1, len(config.get("seeds") or [42]))
-    return total * n_seeds + 30 * 60
+    return total * n_seeds + 30 * 60 + 120 * len(test_cmds)
 
 
 def _resources(pkg_config: dict, config: dict) -> dict:
@@ -631,28 +657,20 @@ def _resources(pkg_config: dict, config: dict) -> dict:
     cpus = 4
     memory_mb = 16 * 1024 if use_cuda else 8 * 1024
     storage_mb = 60 * 1024 if use_cuda else 30 * 1024
-    # GPU count per task = max(ceil(test_cmds[i].compute)) across all test_cmds.
-    # Native MLS-Bench's scheduler treats `compute` as "fraction or count of
-    # GPUs this test_cmd needs"; values >= 1.0 are whole-GPU jobs (ceil),
-    # values < 1.0 are fractional sharing among multiple test_cmds via slurm
-    # batching. Harbor runs all test_cmds sequentially inside one container
-    # so we only need to reserve the peak (max) demand of any single
-    # test_cmd; fractional values still imply 1 GPU since the GPU isn't
-    # shared with anything else during that test_cmd's run.
-    import math
     gpus = 0
     if use_cuda:
-        max_compute = 0.0
-        for tc in config.get("test_cmds", []) or []:
-            try:
-                c = float(tc.get("compute", 1) or 1)
-            except (TypeError, ValueError):
-                c = 1.0
-            if c > max_compute:
-                max_compute = c
-        # >= 1.0 → ceil; < 1.0 (fractional sharing) → 1 since we run
-        # sequentially with full-GPU access per test_cmd.
-        gpus = max(1, math.ceil(max_compute)) if max_compute > 0 else 1
+        peak_gpus = 0
+        for entries in _group_test_cmds(list(config.get("test_cmds", []) or [])).values():
+            whole_sum = 0
+            fractional_sum = 0.0
+            for tc in entries:
+                compute = _test_cmd_compute(tc)
+                if compute >= 1.0:
+                    whole_sum += max(1, math.ceil(compute))
+                elif compute > 0.0:
+                    fractional_sum += compute
+            peak_gpus = max(peak_gpus, whole_sum + max(0, math.ceil(fractional_sum)))
+        gpus = max(1, peak_gpus)
     return dict(cpus=cpus, memory_mb=memory_mb, storage_mb=storage_mb, gpus=gpus)
 
 
@@ -1164,6 +1182,9 @@ def _stage_verifier_assets(
     (meta / "task_id").write_text(ctx.task_id + "\n")
     (meta / "package").write_text(ctx.package + "\n")
     (meta / "workdir").write_text(ctx.pkg_config.get("workdir", "/workspace") + "\n")
+    (meta / "gpu_count").write_text(
+        str(_resources(ctx.pkg_config, config if config is not None else ctx.config)["gpus"]) + "\n"
+    )
     package_envs: dict[str, dict] = {}
     for tc in ctx.config.get("test_cmds", []):
         pkg = tc.get("package")
