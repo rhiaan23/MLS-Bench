@@ -639,17 +639,28 @@ def _test_cmd_compute(tc: dict) -> float:
         return 1.0
 
 
+def _seed_count(config: dict) -> int:
+    seeds = config.get("seeds") or [42]
+    if isinstance(seeds, int):
+        return 1
+    try:
+        return max(1, len(seeds))
+    except TypeError:
+        return 1
+
+
 def _verifier_timeout_sec(config: dict) -> int:
-    # Grouped test_cmds run concurrently inside each seed, so charge each group
-    # by its slowest member rather than summing every member sequentially.
+    # Groups run sequentially, while all (test_cmd, seed) jobs inside a group
+    # run in parallel subject to bin-packing. Charge wall time by each group's
+    # slowest member; budget-check headroom still scales per test_cmd and seed.
     test_cmds = list(config.get("test_cmds", []) or [])
     grouped = _group_test_cmds(test_cmds)
     total = sum(
         max(_parse_time(tc.get("time", "0:30:00")) for tc in entries)
         for entries in grouped.values()
     )
-    n_seeds = max(1, len(config.get("seeds") or [42]))
-    return total * n_seeds + 30 * 60 + 120 * len(test_cmds)
+    n_seeds = _seed_count(config)
+    return total + 30 * 60 + 120 * len(test_cmds) * n_seeds
 
 
 def _resources(pkg_config: dict, config: dict) -> dict:
@@ -659,17 +670,23 @@ def _resources(pkg_config: dict, config: dict) -> dict:
     storage_mb = 60 * 1024 if use_cuda else 30 * 1024
     gpus = 0
     if use_cuda:
+        n_seeds = _seed_count(config)
         peak_gpus = 0
         for entries in _group_test_cmds(list(config.get("test_cmds", []) or [])).values():
-            whole_sum = 0
-            fractional_sum = 0.0
+            whole_per_seed = 0
+            fractional_per_seed = 0.0
             for tc in entries:
                 compute = _test_cmd_compute(tc)
                 if compute >= 1.0:
-                    whole_sum += max(1, math.ceil(compute))
+                    whole_per_seed += max(1, math.ceil(compute))
                 elif compute > 0.0:
-                    fractional_sum += compute
-            peak_gpus = max(peak_gpus, whole_sum + max(0, math.ceil(fractional_sum)))
+                    fractional_per_seed += compute
+            total_whole = n_seeds * whole_per_seed
+            total_fractional = n_seeds * fractional_per_seed
+            peak_gpus = max(
+                peak_gpus,
+                total_whole + max(0, math.ceil(total_fractional)),
+            )
         gpus = max(1, peak_gpus)
     return dict(cpus=cpus, memory_mb=memory_mb, storage_mb=storage_mb, gpus=gpus)
 

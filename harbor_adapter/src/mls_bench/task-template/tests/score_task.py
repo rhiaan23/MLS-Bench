@@ -483,6 +483,13 @@ def _test_cmd_compute(tc: dict) -> float:
         return 1.0
 
 
+def _config_seeds(config: dict) -> list[int]:
+    seeds = config.get("seeds") or [42]
+    if isinstance(seeds, int):
+        seeds = [seeds]
+    return sorted(int(seed) for seed in seeds)
+
+
 def _group_entries(test_cmds: list[dict]) -> dict[int, list[tuple[int, dict]]]:
     auto_group = 10000
     grouped: dict[int, list[tuple[int, dict]]] = {}
@@ -503,16 +510,19 @@ def _infer_reserved_gpu_count(config: dict) -> int:
         return 0
 
     peak_gpus = 0
+    n_seeds = max(1, len(_config_seeds(config)))
     for entries in _group_entries(test_cmds).values():
-        whole_sum = 0
-        fractional_sum = 0.0
+        whole_per_seed = 0
+        fractional_per_seed = 0.0
         for _, tc in entries:
             compute = _test_cmd_compute(tc)
             if compute >= 1.0:
-                whole_sum += max(1, math.ceil(compute))
+                whole_per_seed += max(1, math.ceil(compute))
             elif compute > 0.0:
-                fractional_sum += compute
-        peak_gpus = max(peak_gpus, whole_sum + max(0, math.ceil(fractional_sum)))
+                fractional_per_seed += compute
+        total_whole = n_seeds * whole_per_seed
+        total_fractional = n_seeds * fractional_per_seed
+        peak_gpus = max(peak_gpus, total_whole + max(0, math.ceil(total_fractional)))
     return max(1, peak_gpus) if peak_gpus else 0
 
 
@@ -554,8 +564,8 @@ def _visible_gpu_indices(task_meta: Path, config: dict) -> list[str]:
     return [str(i) for i in range(reserved)]
 
 
-def _entry_gpu_need(entry: dict) -> int:
-    compute = _test_cmd_compute(entry["tc"])
+def _task_gpu_need(task: dict) -> int:
+    compute = _test_cmd_compute(task["entry"]["tc"])
     if compute <= 0.0:
         return 0
     if compute >= 1.0:
@@ -563,11 +573,11 @@ def _entry_gpu_need(entry: dict) -> int:
     return 1
 
 
-def _try_allocate_entry_to_remaining(
-    entry: dict,
+def _try_allocate_task_to_remaining(
+    task: dict,
     remaining: dict[str, float],
 ) -> str | None:
-    compute = _test_cmd_compute(entry["tc"])
+    compute = _test_cmd_compute(task["entry"]["tc"])
     if compute <= 0.0:
         return None
     if compute >= 1.0:
@@ -588,36 +598,40 @@ def _try_allocate_entry_to_remaining(
 
 
 def _allocate_group_gpu_assignments(
-    entries: list[dict],
+    tasks: list[dict],
     devices: list[str],
 ) -> list[str | None] | None:
     if not devices:
-        return [None] * len(entries)
+        return [None] * len(tasks)
 
-    assignments: list[str | None] = [None] * len(entries)
+    assignments: list[str | None] = [None] * len(tasks)
     remaining = {device: 1.0 for device in devices}
-    indexed = list(enumerate(entries))
-    indexed.sort(key=lambda item: 0 if _test_cmd_compute(item[1]["tc"]) >= 1.0 else 1)
+    indexed = list(enumerate(tasks))
+    indexed.sort(
+        key=lambda item: (
+            0 if _test_cmd_compute(item[1]["entry"]["tc"]) >= 1.0 else 1
+        )
+    )
 
-    for idx, entry in indexed:
-        assignment = _try_allocate_entry_to_remaining(entry, remaining)
-        if assignment is None and _entry_gpu_need(entry) > 0:
+    for idx, task in indexed:
+        assignment = _try_allocate_task_to_remaining(task, remaining)
+        if assignment is None and _task_gpu_need(task) > 0:
             return None
         assignments[idx] = assignment
     return assignments
 
 
 def _partition_group_gpu_batches(
-    entries: list[dict],
+    tasks: list[dict],
     devices: list[str],
 ) -> list[tuple[list[dict], list[str | None]]] | None:
     if not devices:
-        return [(list(entries), [None] * len(entries))]
+        return [(list(tasks), [None] * len(tasks))]
 
     batches: list[tuple[list[dict], list[str | None]]] = []
     current: list[dict] = []
-    for entry in entries:
-        trial = [*current, entry]
+    for task in tasks:
+        trial = [*current, task]
         if _allocate_group_gpu_assignments(trial, devices) is None:
             if not current:
                 return None
@@ -625,7 +639,7 @@ def _partition_group_gpu_batches(
             if assignments is None:
                 return None
             batches.append((current, assignments))
-            current = [entry]
+            current = [task]
             if _allocate_group_gpu_assignments(current, devices) is None:
                 return None
         else:
@@ -762,22 +776,21 @@ def _eval_log_path(out_dir: Path, label: str, seed: int) -> Path:
     return out_dir / f"{label}__seed{seed}.log"
 
 
-def _append_error_record(
-    summary: list[dict],
+def _write_error_record(
     out_dir: Path,
     entry: dict,
     seed: int,
     message: str,
     rc: int,
-) -> None:
+) -> dict:
     log_path = _eval_log_path(out_dir, entry["label"], seed)
     log_path.write_text(message.rstrip() + "\n")
-    summary[entry["idx"]]["logs"].append({
+    return {
         "seed": seed,
         "rc": rc,
         "log": str(log_path),
         "elapsed": 0.0,
-    })
+    }
 
 
 def _finish_process_record(state: dict, seed: int, rc: int | None = None) -> dict:
@@ -800,23 +813,24 @@ def _finish_process_record(state: dict, seed: int, rc: int | None = None) -> dic
 
 def _run_eval_wave(
     *,
-    entries: list[dict],
+    tasks: list[dict],
     assignments: list[str | None],
-    seed: int,
     task_meta: Path,
     workspace_root: Path,
     default_pkg: str,
     out_dir: Path,
-) -> dict[int, dict]:
+) -> dict[tuple[int, int], dict]:
     timeout_secs = max(
-        _parse_time_to_seconds(entry["tc"].get("time", "1:00:00"))
-        for entry in entries
+        _parse_time_to_seconds(task["entry"]["tc"].get("time", "1:00:00"))
+        for task in tasks
     ) + 300
     deadline = time.time() + timeout_secs
     running: list[dict] = []
-    results: dict[int, dict] = {}
+    results: dict[tuple[int, int], dict] = {}
 
-    for entry, gpu_devices in zip(entries, assignments):
+    for task, gpu_devices in zip(tasks, assignments):
+        entry = task["entry"]
+        seed = int(task["seed"])
         log_path = _eval_log_path(out_dir, entry["label"], seed)
         pkg_dir = _package_dir(workspace_root, default_pkg, entry["tc"])
         env = _eval_env(
@@ -844,7 +858,7 @@ def _run_eval_wave(
         except Exception as exc:
             fh.write(f"[ERROR] failed to start eval command: {exc}\n")
             fh.close()
-            results[entry["idx"]] = {
+            results[(entry["idx"], seed)] = {
                 "seed": seed,
                 "rc": 127,
                 "log": str(log_path),
@@ -853,6 +867,7 @@ def _run_eval_wave(
             continue
         running.append({
             "entry": entry,
+            "seed": seed,
             "proc": proc,
             "fh": fh,
             "start": t_start,
@@ -866,7 +881,11 @@ def _run_eval_wave(
             if rc is None:
                 still_running.append(state)
             else:
-                results[state["entry"]["idx"]] = _finish_process_record(state, seed, rc)
+                results[(state["entry"]["idx"], state["seed"])] = _finish_process_record(
+                    state,
+                    state["seed"],
+                    rc,
+                )
         running = still_running
         if running:
             time.sleep(0.5)
@@ -884,7 +903,11 @@ def _run_eval_wave(
             state["proc"].wait(timeout=1)
         except Exception:
             pass
-        results[state["entry"]["idx"]] = _finish_process_record(state, seed, 124)
+        results[(state["entry"]["idx"], state["seed"])] = _finish_process_record(
+            state,
+            state["seed"],
+            124,
+        )
 
     return results
 
@@ -899,15 +922,13 @@ def cmd_run_evals(args: argparse.Namespace) -> int:
 
     config = _load_task_config(task_meta)
     test_cmds = config.get("test_cmds", [])
-    seeds = config.get("seeds") or [42]
-    if isinstance(seeds, int):
-        seeds = [seeds]
-    seeds = [int(seed) for seed in seeds]
+    seeds = _config_seeds(config)
 
     summary = [
         {"label": tc.get("label", tc.get("cmd", "test")), "hidden": bool(tc.get("hidden")), "logs": []}
         for tc in test_cmds
     ]
+    records: dict[tuple[int, int], dict] = {}
     prepared: dict[int, dict] = {}
     for idx, tc in enumerate(test_cmds):
         cmd_rel = tc.get("cmd", "")
@@ -920,8 +941,7 @@ def cmd_run_evals(args: argparse.Namespace) -> int:
         except ValueError as exc:
             entry = {"idx": idx, "tc": tc, "label": label}
             for seed in seeds:
-                _append_error_record(
-                    summary,
+                records[(idx, seed)] = _write_error_record(
                     out_dir,
                     entry,
                     seed,
@@ -932,8 +952,7 @@ def cmd_run_evals(args: argparse.Namespace) -> int:
         if not script.exists():
             entry = {"idx": idx, "tc": tc, "label": label}
             for seed in seeds:
-                _append_error_record(
-                    summary,
+                records[(idx, seed)] = _write_error_record(
                     out_dir,
                     entry,
                     seed,
@@ -947,36 +966,66 @@ def cmd_run_evals(args: argparse.Namespace) -> int:
     devices = _visible_gpu_indices(task_meta, config)
     n_reserved = len(devices)
 
-    for seed in seeds:
-        for group_key in sorted(grouped.keys()):
-            group_entries = [
-                prepared[idx]
-                for idx, _ in grouped[group_key]
-                if idx in prepared
-            ]
-            if not group_entries:
-                continue
+    for group_key in sorted(grouped.keys()):
+        group_entries = [
+            prepared[idx]
+            for idx, _ in grouped[group_key]
+            if idx in prepared
+        ]
+        if not group_entries:
+            continue
 
-            budget_candidates: list[dict] = []
-            for entry in group_entries:
-                need = _entry_gpu_need(entry)
-                if n_reserved > 0 and need > n_reserved:
-                    _append_error_record(
-                        summary,
-                        out_dir,
-                        entry,
-                        seed,
-                        (
-                            "[ERROR] test_cmd compute requires "
-                            f"{need} GPUs but only {n_reserved} reserved/visible"
-                        ),
-                        125,
-                    )
-                else:
-                    budget_candidates.append(entry)
+        group_tasks = [
+            {"entry": entry, "seed": seed}
+            for entry in group_entries
+            for seed in seeds
+        ]
 
-            runnable: list[dict] = []
-            for entry in budget_candidates:
+        schedulable: list[dict] = []
+        for task in group_tasks:
+            entry = task["entry"]
+            seed = int(task["seed"])
+            need = _task_gpu_need(task)
+            if n_reserved > 0 and need > n_reserved:
+                records[(entry["idx"], seed)] = _write_error_record(
+                    out_dir,
+                    entry,
+                    seed,
+                    (
+                        "[ERROR] test_cmd compute requires "
+                        f"{need} GPUs but only {n_reserved} reserved/visible"
+                    ),
+                    125,
+                )
+            else:
+                schedulable.append(task)
+
+        if not schedulable:
+            continue
+
+        batches = _partition_group_gpu_batches(schedulable, devices)
+        if batches is None:
+            for task in schedulable:
+                entry = task["entry"]
+                seed = int(task["seed"])
+                records[(entry["idx"], seed)] = _write_error_record(
+                    out_dir,
+                    entry,
+                    seed,
+                    (
+                        "[ERROR] unable to allocate GPUs for test_cmd "
+                        f"with compute={_test_cmd_compute(entry['tc'])}"
+                    ),
+                    125,
+                )
+            continue
+
+        for wave_tasks, assignments in batches:
+            runnable_tasks: list[dict] = []
+            runnable_assignments: list[str | None] = []
+            for task, gpu_devices in zip(wave_tasks, assignments):
+                entry = task["entry"]
+                seed = int(task["seed"])
                 pkg_dir = _package_dir(workspace_root, default_pkg, entry["tc"])
                 env = _eval_env(
                     task_meta=task_meta,
@@ -996,8 +1045,7 @@ def cmd_run_evals(args: argparse.Namespace) -> int:
                     env=env,
                 )
                 if budget and budget["rc"] != 0:
-                    _append_error_record(
-                        summary,
+                    records[(entry["idx"], seed)] = _write_error_record(
                         out_dir,
                         entry,
                         seed,
@@ -1010,50 +1058,38 @@ def cmd_run_evals(args: argparse.Namespace) -> int:
                             f"see {budget['log']}\n"
                         )
                     continue
-                runnable.append(entry)
+                runnable_tasks.append(task)
+                runnable_assignments.append(gpu_devices)
 
-            if not runnable:
+            if not runnable_tasks:
                 continue
 
-            batches = _partition_group_gpu_batches(runnable, devices)
-            if batches is None:
-                for entry in runnable:
-                    _append_error_record(
-                        summary,
+            wave_results = _run_eval_wave(
+                tasks=runnable_tasks,
+                assignments=runnable_assignments,
+                task_meta=task_meta,
+                workspace_root=workspace_root,
+                default_pkg=default_pkg,
+                out_dir=out_dir,
+            )
+            records.update(wave_results)
+            for task in runnable_tasks:
+                entry = task["entry"]
+                seed = int(task["seed"])
+                if (entry["idx"], seed) not in wave_results:
+                    records[(entry["idx"], seed)] = _write_error_record(
                         out_dir,
                         entry,
                         seed,
-                        (
-                            "[ERROR] unable to allocate GPUs for test_cmd "
-                            f"with compute={_test_cmd_compute(entry['tc'])}"
-                        ),
+                        "[ERROR] eval command produced no result",
                         125,
                     )
-                continue
 
-            for wave_entries, assignments in batches:
-                wave_results = _run_eval_wave(
-                    entries=wave_entries,
-                    assignments=assignments,
-                    seed=seed,
-                    task_meta=task_meta,
-                    workspace_root=workspace_root,
-                    default_pkg=default_pkg,
-                    out_dir=out_dir,
-                )
-                for entry in wave_entries:
-                    record = wave_results.get(entry["idx"])
-                    if record is None:
-                        _append_error_record(
-                            summary,
-                            out_dir,
-                            entry,
-                            seed,
-                            "[ERROR] eval command produced no result",
-                            125,
-                        )
-                    else:
-                        summary[entry["idx"]]["logs"].append(record)
+    for idx, _tc in enumerate(test_cmds):
+        for seed in seeds:
+            record = records.get((idx, seed))
+            if record is not None:
+                summary[idx]["logs"].append(record)
 
     (out_dir / "eval_summary.json").write_text(json.dumps(summary, indent=2))
     return 0

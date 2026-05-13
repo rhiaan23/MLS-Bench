@@ -6,6 +6,7 @@ import json
 import signal
 import sys
 import types
+from collections import Counter
 from pathlib import Path
 
 
@@ -131,7 +132,7 @@ def _read_summary(args):
     return json.loads((Path(args.out_dir) / "eval_summary.json").read_text())
 
 
-def test_tdmpc2_group_runs_three_parallel_launches_per_seed(monkeypatch, tmp_path: Path):
+def test_tdmpc2_seeds_and_entries_bin_pack_in_one_wave(monkeypatch, tmp_path: Path):
     score_task = _load_score_task()
     _install_fake_popen(monkeypatch, score_task)
     args = _write_task(
@@ -144,21 +145,28 @@ def test_tdmpc2_group_runs_three_parallel_launches_per_seed(monkeypatch, tmp_pat
             ],
             "seeds": [42, 123, 456],
         },
-        gpu_count=1,
+        gpu_count=3,
     )
 
     assert score_task.cmd_run_evals(args) == 0
 
     starts = _start_records()
     assert len(starts) == 9
-    assert {record["cuda"] for record in starts} == {"0"}
-    batches = _start_batches()
-    assert [len(batch) for batch in batches] == [3, 3, 3]
-    assert [[record["seed"] for record in batch] for batch in batches] == [
-        ["42", "42", "42"],
-        ["123", "123", "123"],
-        ["456", "456", "456"],
+    assert [len(batch) for batch in _start_batches()] == [9]
+    assert Counter(record["cuda"] for record in starts) == {"0": 3, "1": 3, "2": 3}
+    assert [(record["label"], record["seed"]) for record in starts] == [
+        ("walker", "42"),
+        ("walker", "123"),
+        ("walker", "456"),
+        ("cheetah", "42"),
+        ("cheetah", "123"),
+        ("cheetah", "456"),
+        ("cartpole", "42"),
+        ("cartpole", "123"),
+        ("cartpole", "456"),
     ]
+    batches = _start_batches()
+    assert Counter(record["cuda"] for record in batches[0]) == {"0": 3, "1": 3, "2": 3}
 
 
 def test_llm_pretrain_attention_runs_groups_sequentially(monkeypatch, tmp_path: Path):
@@ -210,6 +218,35 @@ def test_ai4sci_fractional_group_packs_onto_two_gpus(monkeypatch, tmp_path: Path
     assert [len(batch) for batch in _start_batches()] == [3]
     cuda_values = [record["cuda"] for record in starts]
     assert set(cuda_values) == {"0", "1"}
+
+
+def test_multi_seed_fractional_flat_pack(monkeypatch, tmp_path: Path):
+    score_task = _load_score_task()
+    _install_fake_popen(monkeypatch, score_task)
+    args = _write_task(
+        tmp_path,
+        {
+            "test_cmds": [
+                {"cmd": "scripts/a.sh", "label": "a", "group": 1, "compute": 0.5, "time": "0:01:00", "package": "pkg"},
+                {"cmd": "scripts/b.sh", "label": "b", "group": 1, "compute": 0.5, "time": "0:01:00", "package": "pkg"},
+            ],
+            "seeds": [42, 123],
+        },
+        gpu_count=2,
+    )
+
+    assert score_task.cmd_run_evals(args) == 0
+
+    starts = _start_records()
+    assert len(starts) == 4
+    assert [len(batch) for batch in _start_batches()] == [4]
+    assert Counter(record["cuda"] for record in starts) == {"0": 2, "1": 2}
+    assert [(record["label"], record["seed"]) for record in starts] == [
+        ("a", "42"),
+        ("a", "123"),
+        ("b", "42"),
+        ("b", "123"),
+    ]
 
 
 def test_cv_3dgs_separate_groups_run_sequentially(monkeypatch, tmp_path: Path):
