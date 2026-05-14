@@ -532,9 +532,17 @@ def _pick_strongest_baseline(
 
     best_name, best_score = None, float("-inf")
     for name in baselines:
-        rows = [r for r in leaderboard if r.get("model") == name and r.get("seed") == "mean"]
+        # Leaderboard rows store model as `baseline:<name>` for native
+        # MLS-Bench baselines, but config.json::baselines uses the bare
+        # `<name>` as the dict key. Accept either spelling so this loop
+        # actually finds the rows.
+        candidates = {name, f"baseline:{name}"}
+        rows = [
+            r for r in leaderboard
+            if r.get("model") in candidates and r.get("seed") == "mean"
+        ]
         if not rows:
-            rows = [r for r in leaderboard if r.get("model") == name]
+            rows = [r for r in leaderboard if r.get("model") in candidates]
         scored = [s for s in (_score_row(r) for r in rows) if s is not None]
         if not scored:
             continue
