@@ -498,70 +498,117 @@ def _load_leaderboard(task_dir: Path) -> list[dict]:
 
 
 def _pick_strongest_baseline(
+    task_dir: Path,
     config: dict,
     leaderboard: list[dict],
-) -> tuple[str, list[dict]]:
-    """Pick the baseline with the highest mean of in-config visible test metrics.
+) -> str:
+    """Pick the baseline whose leaderboard row scores highest under the task's
+    native ``score_spec.py``.
 
-    Returns (baseline_name, edit_ops). Falls back to the first declared baseline.
+    Delegates entirely to ``mlsbench.scoring``: each baseline row is scored
+    with ``score_record`` against ``BaselineAnchors``, exactly like a real
+    agent submission. This avoids any ad-hoc label-vs-column string matching
+    in the adapter.
+
+    Falls back to the first declared baseline only when scoring is unavailable
+    (no ``score_spec.py``, no leaderboard rows, or import failure).
     """
     baselines = config.get("baselines") or {}
     if not baselines:
-        return "", []
+        return ""
+    first = next(iter(baselines))
 
-    visible_labels = [
-        tc.get("label") for tc in config.get("test_cmds", [])
-        if tc.get("label") and not tc.get("hidden")
-    ]
-    visible_label_set = set(visible_labels)
+    if not leaderboard:
+        return first
 
-    def _score_row(row: dict) -> float | None:
-        nums = []
-        for k, v in row.items():
-            if v in (None, "", "nan"): continue
+    try:
+        from mlsbench.scoring.anchors import BaselineAnchors
+        from mlsbench.scoring.evaluate import load_expanded_spec, score_record
+    except Exception as exc:
+        _warn(
+            f"_pick_strongest_baseline: mlsbench.scoring not importable "
+            f"({exc!r}); falling back to first declared baseline {first!r} "
+            f"for {task_dir.name}."
+        )
+        return first
+
+    anchors = BaselineAnchors(task_dir)
+    spec = load_expanded_spec(task_dir, anchors)
+    if spec is None or not spec.settings:
+        _warn(
+            f"_pick_strongest_baseline: no usable score_spec for "
+            f"{task_dir.name}; falling back to first declared baseline "
+            f"{first!r}."
+        )
+        return first
+
+    # For each baseline, find its leaderboard row(s) and score them with the
+    # native scorer. Selection precedence matches `evaluate.evaluate_task`:
+    # prefer is_final + seed=mean, then seed=mean, then any row, picking the
+    # most metric-complete row within the chosen tier.
+    def _completeness(rec: dict) -> int:
+        c = 0
+        for k, v in rec.items():
+            if k in {"timestamp", "model", "is_final", "seed"}:
+                continue
+            if k.startswith("elapsed_") or k.endswith("_std"):
+                continue
+            if v in ("", None):
+                continue
+            if isinstance(v, str) and v.strip().lower() in {"nan", "null", "none"}:
+                continue
             try:
-                fv = float(v)
+                f = float(v)
             except (TypeError, ValueError):
+                c += 1
                 continue
-            # Match metric columns that include any visible label.
-            if not any(lab in k for lab in visible_label_set):
-                continue
-            nums.append(fv)
-        if not nums: return None
-        return statistics.fmean(nums)
+            if not math.isnan(f):
+                c += 1
+        return c
 
-    best_name, best_score = None, float("-inf")
-    for name in baselines:
-        # Leaderboard rows store model as `baseline:<name>` for native
-        # MLS-Bench baselines, but config.json::baselines uses the bare
-        # `<name>` as the dict key. Accept either spelling so this loop
-        # actually finds the rows.
-        candidates = {name, f"baseline:{name}"}
-        rows = [
-            r for r in leaderboard
-            if r.get("model") in candidates and r.get("seed") == "mean"
-        ]
+    def _pick_row(rows: list[dict]) -> dict | None:
         if not rows:
-            rows = [r for r in leaderboard if r.get("model") in candidates]
-        scored = [s for s in (_score_row(r) for r in rows) if s is not None]
-        if not scored:
+            return None
+        return max(rows, key=lambda r: (_completeness(r), str(r.get("timestamp", ""))))
+
+    best_name: str | None = None
+    best_score: float = float("-inf")
+    any_scored = False
+    for name in baselines:
+        candidates = {name, f"baseline:{name}"}
+        rows = [r for r in leaderboard if r.get("model") in candidates]
+        if not rows:
             continue
-        m = statistics.fmean(scored)
-        if m > best_score:
-            best_name, best_score = name, m
+        final_mean = [r for r in rows
+                      if r.get("seed") == "mean"
+                      and str(r.get("is_final", "")).lower() == "true"]
+        mean_rows = [r for r in rows if r.get("seed") == "mean"]
+        chosen = _pick_row(final_mean) or _pick_row(mean_rows) or _pick_row(rows)
+        if chosen is None:
+            continue
+        try:
+            s = score_record(spec, chosen, anchors)
+        except Exception as exc:
+            _warn(
+                f"_pick_strongest_baseline: scoring baseline {name!r} for "
+                f"{task_dir.name} raised {exc!r}; skipping."
+            )
+            continue
+        if s is None or (isinstance(s, float) and math.isnan(s)):
+            continue
+        any_scored = True
+        if s > best_score:
+            best_name, best_score = name, float(s)
 
     if best_name is None:
-        best_name = next(iter(baselines))
-
-    edit_ops_rel = baselines[best_name].get("edit_ops", "")
-    return best_name, _load_edit_ops(edit_ops_rel)
-
-
-def _load_edit_ops(rel_path: str) -> list[dict]:
-    """Load `OPS = [...]` from a baseline's edit_ops .py file."""
-    # The path is relative to the task dir; we'll resolve it from the caller.
-    # This is replaced in build_task_context.
-    return []  # placeholder; real loader lives in build_task_context.
+        if not any_scored:
+            _warn(
+                f"_pick_strongest_baseline: no baseline row could be scored "
+                f"for {task_dir.name}; falling back to first declared "
+                f"baseline {first!r}."
+            )
+        return first
+    return best_name
 
 
 def build_task_context(mb: MlsBenchRoot, task_id: str) -> TaskContext:
@@ -577,7 +624,7 @@ def build_task_context(mb: MlsBenchRoot, task_id: str) -> TaskContext:
     edit_ops: list[dict] = []
     baselines = config.get("baselines") or {}
     if baselines:
-        baseline_name, _ = _pick_strongest_baseline(config, leaderboard)
+        baseline_name = _pick_strongest_baseline(task_dir, config, leaderboard)
         rel = baselines[baseline_name].get("edit_ops")
         if rel:
             try:
