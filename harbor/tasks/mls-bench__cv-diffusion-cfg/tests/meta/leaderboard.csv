@@ -1,0 +1,10 @@
+timestamp,model,is_final,seed,fid_sd15,fid_sd20,fid_sdxl,elapsed_sd15,elapsed_sd20,clip_score_sd20,clip_score_sd15,clip_score,fid
+2026-04-14T00:00:00.000000+00:00,baseline:cfg,true,42,23.6473,24.2928,25.7426,,,,,,
+2026-04-14T00:00:00.000000+00:00,baseline:cfgpp,true,42,23.9904,24.8937,25.8774,,,,,,
+2026-04-14T00:00:00.000000+00:00,baseline:zeroinit,true,42,22.7559,23.3120,25.4935,,,,,,
+2026-05-09T03:41:05.495070+00:00,baseline:cfg,false,42,,,,,,,,,
+2026-05-09T03:50:30.069738+00:00,baseline:cfg,false,42,,,,,,,,,
+2026-05-09T04:09:51.057937+00:00,baseline:cfg,false,42,,,,,,,,,
+2026-05-09T04:38:38.604563+00:00,baseline:cfg,false,42,,,,,,,,,
+2026-05-09T06:27:23.248934+00:00,baseline:cfg,false,42,,,,,,,,,
+2026-05-09T08:42:47.392107+00:00,baseline:cfg,false,42,15.6085,,,4826,,,0.3118,0.3118,15.6085
