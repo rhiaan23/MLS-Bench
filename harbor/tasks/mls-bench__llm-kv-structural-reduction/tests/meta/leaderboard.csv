@@ -1,0 +1,9 @@
+timestamp,model,is_final,seed,val_loss_gpt-345m,kv_bytes_per_token_gpt-345m,head_sharing_ratio_gpt-345m,latent_rank_ratio_gpt-345m,heldout_loss_gpt-345m,heldout_loss_wikitext2_gpt-345m,heldout_loss_wikitext103_gpt-345m,heldout_loss_lambada_gpt-345m,elapsed_gpt-345m,elapsed_lm-eval-345m,arc_easy_lm-eval-345m,hellaswag_lm-eval-345m,piqa_lm-eval-345m,winogrande_lm-eval-345m,generation_toks_per_s_gpt-345m,generation_toks_per_s_wikitext2_gpt-345m,generation_toks_per_s_wikitext103_gpt-345m,generation_toks_per_s_lambada_gpt-345m,generation_toks_per_s_gen-eval-345m,elapsed_gen-eval-345m
+2026-04-25T23:40:48.995894+00:00,baseline:mqa,true,42,2.33785,256.0,16.0,1.0,3.999302,3.862528,3.853836,4.281542,23268,472,53.49,32.46,64.8,50.43,,,,,,
+2026-04-25T23:47:51.479298+00:00,baseline:gqa,true,42,2.312553,1024.0,4.0,1.0,3.969124,3.767792,3.845813,4.293768,23765,437,55.01,33.12,63.76,50.67,,,,,,
+2026-04-26T00:00:51.577088+00:00,baseline:mha,true,42,2.275425,4096.0,1.0,1.0,3.967285,3.873442,3.798263,4.23015,24511,405,54.88,33.42,64.15,53.2,,,,,,
+2026-04-26T05:47:01.642710+00:00,baseline:mla,true,42,2.306939,192.0,16.0,0.25,3.988359,3.871585,3.861501,4.231989,43991,1029,54.76,33.21,63.76,51.93,,,,,,
+2026-04-22T16:40:37.482248+00:00,baseline:mqa,false,42,2.268729,256.0,16.0,1.0,3.924958,3.736391,3.834431,4.204051,43723,5,,,,,143.3381,123.4469,153.3292,153.2384,,
+2026-04-22T17:52:25.643646+00:00,baseline:mha,false,42,2.224269,4096.0,1.0,1.0,3.844621,3.670509,3.691422,4.171933,47422,5,,,,,151.0681,130.1716,161.4746,161.5583,,
+2026-04-22T21:16:42.418305+00:00,baseline:gqa,false,42,2.244353,1024.0,4.0,1.0,3.886927,3.694692,3.778167,4.187922,45648,5,,,,,149.8845,129.2525,160.1553,160.2457,,
+2026-04-26T06:44:22.780433+00:00,baseline:mla,false,42,,,,,,,,,,,,,,,,,,,82.9985,20

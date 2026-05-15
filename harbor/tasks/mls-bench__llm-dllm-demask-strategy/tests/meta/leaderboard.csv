@@ -1,0 +1,7 @@
+timestamp,model,is_final,seed,accuracy_llada-math,avg_steps_llada-math,n_samples_llada-math,elapsed_llada-math,accuracy_llada-humaneval,avg_steps_llada-humaneval,n_samples_llada-humaneval,elapsed_llada-humaneval,gen_ppl_dream-text,mauve_dream-text,entropy_dream-text,rep2_dream-text,avg_steps_dream-text,n_samples_dream-text,elapsed_dream-text
+2026-04-14T22:58:35.831781+00:00,baseline:random,true,42,,,,,,,,,,,,,,,
+2026-04-16T17:30:00.341776+00:00,baseline:klass_kl,true,42,,,,69,,,,,,,,,,,
+2026-04-16T17:48:00.521409+00:00,baseline:prophet,true,42,,,,37,,,,,,,,,,,
+2026-04-17T04:07:03.496933+00:00,baseline:klass,true,42,0.334,127.86,500.0,3328,0.372,93.81,164.0,909,64.2192,0.0677,6.3243,0.0163,88.54,256.0,515
+2026-04-17T07:55:03.203687+00:00,baseline:confidence_greedy,true,42,0.316,256.0,500.0,6094,0.3659,256.0,164.0,2070,170.6088,0.0321,6.4134,0.0133,224.0,256.0,1085
+2026-04-17T12:00:00.000000+00:00,baseline:topk_margin,true,42,0.322,256.0,500.0,6143,0.3902,256.0,164.0,2817,237.0499,0.1124,5.9261,0.0254,224.0,256.0,1536

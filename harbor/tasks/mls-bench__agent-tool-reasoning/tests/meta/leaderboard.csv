@@ -1,0 +1,4 @@
+timestamp,model,is_final,seed,pass_rate_deepseek,avg_queries_deepseek,give_up_rate_deepseek,sopr_deepseek,sopr_n_scored_deepseek,elapsed_I1-instruction-deepseek,pass_rate_qwen72b,avg_queries_qwen72b,give_up_rate_qwen72b,sopr_qwen72b,sopr_n_scored_qwen72b,elapsed_I1-instruction-qwen72b,pass_rate_qwen7b,avg_queries_qwen7b,give_up_rate_qwen7b,sopr_qwen7b,sopr_n_scored_qwen7b,elapsed_I1-instruction-qwen7b
+2026-04-23T08:33:00.069966+00:00,baseline:greedy_chain,false,42,0.44,3.7,0.04,0.34,50,2113.6,0.62,3.9,0.04,0.32,50,1848.5,0.3,5.5,0.06,0.14,50,1636.7
+2026-04-23T14:33:01.288558+00:00,baseline:dfsdt,false,42,0.78,18.3,0.04,0.4,50,11103.8,0.9,12.4,0.0,0.54,50,5614.1,0.44,39.6,0.0,0.26,50,10476.2
+2026-04-23T15:41:20.549287+00:00,baseline:dfs_ranked,false,42,0.72,33.1,0.02,0.4,50,10097.3,0.82,35.1,0.02,0.5,50,9393.8,0.36,52.7,0.04,0.2,50,11805.2

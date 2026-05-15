@@ -1,0 +1,10 @@
+timestamp,model,is_final,seed,best_fid_edges2handbags,best_fid_Imagenet,elapsed_edges2handbags,elapsed_Imagenet,best_fid,fid,fid_edges2handbags,fid_Imagenet,best_fid_DIODE,fid_DIODE,elapsed_DIODE,best_fid_DIODE_50nfe,fid_DIODE_50nfe,elapsed_DIODE_50nfe
+2026-04-19T00:00:00.000000+00:00,baseline:dbim,true,42,5.180,6.070,,,,,,,15.002,15.002,271.2,,,
+2026-04-19T00:00:00.000000+00:00,baseline:dbim_high_order,true,42,4.988,5.528,,,,,,,14.306,14.306,274.8,,,
+2026-04-19T00:00:00.000000+00:00,baseline:ddbm,true,42,11.139,10.556,,,,,,,15.811,15.811,2149.3,15.811,15.811,2149.3
+2026-04-19T00:00:00.000000+00:00,baseline:ecsi,true,42,4.234,52.60,,,,,,5.999,5.999,270.2,,,,
+2026-05-09T09:01:44.078728+00:00,baseline:dbim,false,42,,,,,,,,,,,,,,
+2026-05-09T09:13:13.138769+00:00,baseline:dbim,false,42,,,,,,,,,,,,,,
+2026-05-09T09:16:26.750394+00:00,baseline:dbim,false,42,,,,,,,,,,,,,,
+2026-05-09T09:18:25.821573+00:00,baseline:dbim,false,42,,,,,,,,,,,,,,
+2026-05-09T09:29:52.181322+00:00,baseline:dbim,false,42,,,626,,,,5.184,,,,,,,
