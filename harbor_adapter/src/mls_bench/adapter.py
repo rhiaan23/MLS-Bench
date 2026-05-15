@@ -1,6 +1,7 @@
 """Core adapter logic: read MLS-Bench task tree, emit Harbor task dirs."""
 from __future__ import annotations
 
+import ast
 import csv
 import hashlib
 import json
@@ -437,6 +438,46 @@ def _load_ops_file(ops_py: Path) -> list[dict]:
             sys.modules.pop("custom_template", None)
         else:
             sys.modules["custom_template"] = saved_custom_template
+
+
+def _assert_python_syntax(
+    text: str,
+    *,
+    rel_path: str,
+    origin: str,
+    task_id: str,
+) -> None:
+    """Raise RuntimeError if ``text`` (the contents of ``rel_path`` after an op
+    sequence) is not valid Python.
+
+    The error message names the workspace-relative path, the originating op
+    source (``origin`` — e.g. ``"mid_edit.py"`` or
+    ``"pre_edit.py for Time-Series-Library"``), the failing line, and a small
+    code snippet. This catches silent vendor-drift bugs where a
+    hard-coded line-range op cuts a multi-line statement: pre_edit/mid_edit
+    line numbers depend on the upstream source layout, and if a vendored
+    package is re-fetched off the pinned commit the resulting scaffold would
+    otherwise ship broken Python that only fails at agent runtime.
+    """
+    if not rel_path.endswith(".py"):
+        return
+    try:
+        ast.parse(text, filename=rel_path)
+    except SyntaxError as exc:
+        snippet_lines = text.splitlines()
+        lo = max(1, (exc.lineno or 1) - 2)
+        hi = min(len(snippet_lines), (exc.lineno or 1) + 2)
+        snippet = "\n".join(
+            f"{'>>' if i == exc.lineno else '  '}{i:5d}: {snippet_lines[i-1]}"
+            for i in range(lo, hi + 1)
+        )
+        raise RuntimeError(
+            f"{task_id}: {origin} produced invalid Python in {rel_path!r} at "
+            f"line {exc.lineno} ({exc.msg}). Most likely the vendored package "
+            f"source has drifted from the line numbers the op file targets — "
+            f"re-pin the upstream commit in vendor/packages.yaml or convert "
+            f"the op to a content-anchored edit.\n{snippet}"
+        ) from exc
 
 
 def _parse_time(t: str) -> int:
@@ -1124,7 +1165,14 @@ def _stage_task_scaffold(
             _warn(f"{ctx.task_id}: skipping unsafe scaffold path {rel!r}: {exc}")
             continue
         dst.parent.mkdir(parents=True, exist_ok=True)
-        dst.write_text("".join(lines))
+        text = "".join(lines)
+        _assert_python_syntax(
+            text,
+            rel_path=rel,
+            origin="mid_edit.py (and underlying pre_edit.py)",
+            task_id=ctx.task_id,
+        )
+        dst.write_text(text)
         created.append(_safe_rel_str(rel, field="mid_edit file"))
     return created
 

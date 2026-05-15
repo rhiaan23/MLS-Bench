@@ -52,6 +52,7 @@ from mls_bench.adapter import (
     _load_ops_file,
     _safe_rel_path,
     _safe_join,
+    _assert_python_syntax,
     _content_lines,
     _delete_bounds,
     _end_index,
@@ -88,23 +89,32 @@ def _apply_pre_edit_ops(mb, pkg: str, root: Path) -> None:
         kind = op.get("op")
         content = op.get("content", "")
         if kind == "create":
-            dst.write_text("".join(_content_lines(content)))
+            new_text = "".join(_content_lines(content))
         elif kind == "replace" and dst.exists():
             lines = dst.read_text().splitlines(keepends=True)
             s = int(op["start_line"]) - 1
             e = _end_index(lines, int(op["end_line"]))
-            dst.write_text("".join(lines[:s] + _content_lines(content) + lines[e:]))
+            new_text = "".join(lines[:s] + _content_lines(content) + lines[e:])
         elif kind == "insert":
             existing = dst.read_text() if dst.exists() else ""
             lines = existing.splitlines(keepends=True)
             after = int(op.get("after_line", 0))
-            dst.write_text("".join(lines[:after] + _content_lines(content) + lines[after:]))
+            new_text = "".join(lines[:after] + _content_lines(content) + lines[after:])
         elif kind == "delete" and dst.exists():
             lines = dst.read_text().splitlines(keepends=True)
             start, end = _delete_bounds(op)
             s = start - 1
             e = _end_index(lines, end)
-            dst.write_text("".join(lines[:s]) + "".join(lines[e:]))
+            new_text = "".join(lines[:s]) + "".join(lines[e:])
+        else:
+            continue
+        _assert_python_syntax(
+            new_text,
+            rel_path=str(rel.as_posix()),
+            origin=f"pre_edit.py for {pkg}",
+            task_id=f"base-image:{pkg}",
+        )
+        dst.write_text(new_text)
 
 
 def _render_dockerfile(workdir: str, pkg: str, data_entries: list[tuple[str, str]]) -> str:

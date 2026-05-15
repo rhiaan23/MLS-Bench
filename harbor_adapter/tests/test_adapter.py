@@ -232,3 +232,92 @@ def test_baseline_sections_use_post_mid_edit_workspace_text(tmp_path: Path):
     assert "Lines 2–2:" in sections[0]["code"]
     assert "BASE" in sections[0]["code"]
     assert "OLD" not in sections[0]["code"]
+
+
+def test_stage_task_scaffold_rejects_drifted_pre_edit_line_replace(tmp_path: Path):
+    """Regression: if a pre_edit/mid_edit line-range replace cuts a multi-line
+    Python statement (because the vendored source drifted off the line numbers
+    the op file targets), the scaffold must fail loudly instead of writing
+    broken Python that only surfaces at agent runtime.
+
+    Simulates the upstream Time-Series-Library drift where the colleague's
+    vendor copy had `--use_dtw` spanning lines 113-114 (instead of 109-110 in
+    the pinned commit). pre_edit replaces line 114 only, deleting the
+    `help='...')` continuation and leaving an unclosed `(`.
+    """
+    import pytest
+
+    mb_root = tmp_path / "mini"
+    task_dir = mb_root / "tasks" / "drift"
+    edits = task_dir / "edits"
+    edits.mkdir(parents=True)
+    (mb_root / "vendor" / "pkg").mkdir(parents=True)
+    (mb_root / "vendor" / "pkg" / "main.py").write_text(
+        # Two-line argparse call (the `(` on line 1, the `)` on line 2)
+        # mimics --use_dtw in the drifted upstream.
+        "import argparse\n"
+        "parser = argparse.ArgumentParser()\n"
+        "parser.add_argument('--use_dtw', action='store_true', default=False,\n"
+        "                    help='enable dtw metric')\n"
+    )
+    (mb_root / "vendor" / "pkg_configs" / "pkg").mkdir(parents=True)
+    (mb_root / "vendor" / "pkg_configs" / "pkg" / "config.json").write_text("{}")
+    (mb_root / "vendor" / "packages.yaml").write_text("{}\n")
+    config = {
+        "test_cmds": [
+            {"cmd": "x.sh", "label": "x", "compute": 1, "time": "0:01:00", "package": "pkg"}
+        ],
+        "files": [{"filename": "pkg/main.py", "edit": [{"start": -1, "end": -1}]}],
+    }
+    (task_dir / "config.json").write_text(json.dumps(config))
+    (task_dir / "task_description.md").write_text("Task\n")
+    # Replace line 4 (the help= continuation) with a new add_argument —
+    # the `(` from line 3 is now unclosed.
+    (edits / "mid_edit.py").write_text(
+        "OPS = ["
+        '{"op": "replace", "file": "pkg/main.py", '
+        '"start_line": 4, "end_line": 4, '
+        '"content": "parser.add_argument(\'--seed\', type=int, default=42)"}]\n'
+    )
+
+    mb = MlsBenchRoot(mb_root)
+    ctx = build_task_context(mb, "drift")
+    with pytest.raises(RuntimeError, match=r"invalid Python in 'pkg/main\.py'"):
+        _stage_task_scaffold(mb, ctx, tmp_path / "scaffold")
+
+
+def test_stage_task_scaffold_accepts_valid_line_replace(tmp_path: Path):
+    """Sanity counterpart: line-range replace that does NOT break syntax must
+    not trigger the syntax guard."""
+    mb_root = tmp_path / "mini"
+    task_dir = mb_root / "tasks" / "ok"
+    edits = task_dir / "edits"
+    edits.mkdir(parents=True)
+    (mb_root / "vendor" / "pkg").mkdir(parents=True)
+    (mb_root / "vendor" / "pkg" / "main.py").write_text(
+        "import argparse\n"
+        "parser = argparse.ArgumentParser()\n"
+        "parser.add_argument('--seed', type=int, default=2)\n"
+    )
+    (mb_root / "vendor" / "pkg_configs" / "pkg").mkdir(parents=True)
+    (mb_root / "vendor" / "pkg_configs" / "pkg" / "config.json").write_text("{}")
+    (mb_root / "vendor" / "packages.yaml").write_text("{}\n")
+    config = {
+        "test_cmds": [
+            {"cmd": "x.sh", "label": "x", "compute": 1, "time": "0:01:00", "package": "pkg"}
+        ],
+        "files": [{"filename": "pkg/main.py", "edit": [{"start": -1, "end": -1}]}],
+    }
+    (task_dir / "config.json").write_text(json.dumps(config))
+    (task_dir / "task_description.md").write_text("Task\n")
+    (edits / "mid_edit.py").write_text(
+        "OPS = ["
+        '{"op": "replace", "file": "pkg/main.py", '
+        '"start_line": 3, "end_line": 3, '
+        '"content": "parser.add_argument(\'--seed\', type=int, default=42)"}]\n'
+    )
+
+    mb = MlsBenchRoot(mb_root)
+    ctx = build_task_context(mb, "ok")
+    created = _stage_task_scaffold(mb, ctx, tmp_path / "scaffold")
+    assert "pkg/main.py" in created
