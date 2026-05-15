@@ -502,6 +502,24 @@ def _group_entries(test_cmds: list[dict]) -> dict[int, list[tuple[int, dict]]]:
     return grouped
 
 
+def _bin_pack_fractional_gpus(fractionals: list[float]) -> int:
+    """Min 1.0-capacity bins needed for these fractional GPU jobs.
+
+    First-fit-decreasing. `ceil(sum)` underestimates whenever per-GPU capacity
+    is bin-limited (e.g. 9 jobs of 0.4 GPUs each need 5 bins, not ceil(3.6)=4,
+    because each bin holds at most floor(1/0.4)=2 such jobs).
+    """
+    bins: list[float] = []
+    for c in sorted(fractionals, reverse=True):
+        for i, cap in enumerate(bins):
+            if cap >= c:
+                bins[i] = cap - c
+                break
+        else:
+            bins.append(1.0 - c)
+    return len(bins)
+
+
 def _infer_reserved_gpu_count(config: dict) -> int:
     if config.get("use_cuda") is False:
         return 0
@@ -512,17 +530,15 @@ def _infer_reserved_gpu_count(config: dict) -> int:
     peak_gpus = 0
     n_seeds = max(1, len(_config_seeds(config)))
     for entries in _group_entries(test_cmds).values():
-        whole_per_seed = 0
-        fractional_per_seed = 0.0
+        whole = 0
+        fractionals: list[float] = []
         for _, tc in entries:
             compute = _test_cmd_compute(tc)
             if compute >= 1.0:
-                whole_per_seed += max(1, math.ceil(compute))
+                whole += n_seeds * max(1, math.ceil(compute))
             elif compute > 0.0:
-                fractional_per_seed += compute
-        total_whole = n_seeds * whole_per_seed
-        total_fractional = n_seeds * fractional_per_seed
-        peak_gpus = max(peak_gpus, total_whole + max(0, math.ceil(total_fractional)))
+                fractionals.extend([compute] * n_seeds)
+        peak_gpus = max(peak_gpus, whole + _bin_pack_fractional_gpus(fractionals))
     return max(1, peak_gpus) if peak_gpus else 0
 
 

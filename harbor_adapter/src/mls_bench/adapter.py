@@ -184,6 +184,11 @@ class MlsBenchAdapter:
                 task_dirs.append(out)
             except Exception as exc:
                 failed.append((task_id, exc))
+                # Drop any half-rendered staging dir (`<task>.inprogress`) so a
+                # later manifest scan / tarball doesn't pick it up.
+                stage = self.output_dir / (_harbor_safe_name(task_id) + ".inprogress")
+                if stage.exists():
+                    shutil.rmtree(stage, ignore_errors=True)
                 print(f"[fail] {task_id}: {exc}", file=sys.stderr)
                 if not self.continue_on_error:
                     raise
@@ -462,7 +467,10 @@ def _assert_python_syntax(
     if not rel_path.endswith(".py"):
         return
     try:
-        ast.parse(text, filename=rel_path)
+        # `compile` is stricter than `ast.parse`: it additionally rejects
+        # module-level `return`/`break` etc that ast.parse silently accepts,
+        # catching a wider class of malformed paste-ins.
+        compile(text, rel_path, "exec")
     except SyntaxError as exc:
         snippet_lines = text.splitlines()
         lo = max(1, (exc.lineno or 1) - 2)
@@ -620,11 +628,22 @@ def _pick_strongest_baseline(
         rows = [r for r in leaderboard if r.get("model") in candidates]
         if not rows:
             continue
+        # Four-tier precedence matching native `evaluate.evaluate_task`
+        # (src/mlsbench/scoring/evaluate.py:678-719):
+        # final_mean > final_any > nonfinal_mean > any row. Within each tier
+        # prefer the most metric-complete row, then latest by timestamp.
         final_mean = [r for r in rows
                       if r.get("seed") == "mean"
                       and str(r.get("is_final", "")).lower() == "true"]
-        mean_rows = [r for r in rows if r.get("seed") == "mean"]
-        chosen = _pick_row(final_mean) or _pick_row(mean_rows) or _pick_row(rows)
+        final_any = [r for r in rows
+                     if str(r.get("is_final", "")).lower() == "true"]
+        nonfinal_mean = [r for r in rows if r.get("seed") == "mean"]
+        chosen = (
+            _pick_row(final_mean)
+            or _pick_row(final_any)
+            or _pick_row(nonfinal_mean)
+            or _pick_row(rows)
+        )
         if chosen is None:
             continue
         try:
@@ -759,6 +778,26 @@ def _verifier_timeout_sec(config: dict) -> int:
     return total + 30 * 60 + 120 * len(test_cmds) * n_seeds
 
 
+def _bin_pack_fractional_gpus(fractionals: list[float]) -> int:
+    """Min 1.0-capacity bins needed to hold all fractional GPU jobs.
+
+    First-fit-decreasing: place each (sorted-descending) job into the first bin
+    that has room, otherwise open a new bin. This is the correct count of GPUs
+    needed concurrently, vs the wrong `ceil(sum)` approximation (e.g. 9 jobs
+    of 0.4 GPUs each → ceil(3.6)=4 but actually requires 5 bins because each
+    bin holds at most floor(1/0.4)=2 such jobs).
+    """
+    bins: list[float] = []
+    for c in sorted(fractionals, reverse=True):
+        for i, cap in enumerate(bins):
+            if cap >= c:
+                bins[i] = cap - c
+                break
+        else:
+            bins.append(1.0 - c)
+    return len(bins)
+
+
 def _resources(pkg_config: dict, config: dict) -> dict:
     use_cuda = bool(config.get("use_cuda")) or bool(pkg_config.get("use_cuda"))
     cpus = 4
@@ -769,20 +808,20 @@ def _resources(pkg_config: dict, config: dict) -> dict:
         n_seeds = _seed_count(config)
         peak_gpus = 0
         for entries in _group_test_cmds(list(config.get("test_cmds", []) or [])).values():
-            whole_per_seed = 0
-            fractional_per_seed = 0.0
+            whole = 0
+            fractionals: list[float] = []
             for tc in entries:
                 compute = _test_cmd_compute(tc)
                 if compute >= 1.0:
-                    whole_per_seed += max(1, math.ceil(compute))
+                    # `seeds` parallel copies of a whole-GPU job each take its
+                    # own dedicated GPU(s).
+                    whole += n_seeds * max(1, math.ceil(compute))
                 elif compute > 0.0:
-                    fractional_per_seed += compute
-            total_whole = n_seeds * whole_per_seed
-            total_fractional = n_seeds * fractional_per_seed
-            peak_gpus = max(
-                peak_gpus,
-                total_whole + max(0, math.ceil(total_fractional)),
-            )
+                    # Each (entry, seed) is a separate concurrent job competing
+                    # for fractional GPU space — `n_seeds` copies of the same
+                    # entry. Bin-packed below.
+                    fractionals.extend([compute] * n_seeds)
+            peak_gpus = max(peak_gpus, whole + _bin_pack_fractional_gpus(fractionals))
         gpus = max(1, peak_gpus)
     return dict(cpus=cpus, memory_mb=memory_mb, storage_mb=storage_mb, gpus=gpus)
 
@@ -830,11 +869,19 @@ def render_task(
     out_root: Path,
     overwrite: bool = False,
 ) -> Path:
-    out_dir = out_root / _harbor_safe_name(ctx.task_id)
+    final_dir = out_root / _harbor_safe_name(ctx.task_id)
+    if final_dir.exists() and not overwrite:
+        return final_dir
+
+    # Render into a sibling staging dir, rename on success. Partial renders
+    # (e.g. when _stage_pristine_assets fails for missing vendor packages)
+    # never leave a malformed task directory that downstream tooling
+    # (dataset.toml writer, Harbor) would pick up.
+    out_dir = out_root / (final_dir.name + ".inprogress")
     if out_dir.exists():
-        if not overwrite:
-            return out_dir
         shutil.rmtree(out_dir)
+    if final_dir.exists():
+        shutil.rmtree(final_dir)
     out_dir.mkdir(parents=True)
 
     task_dir = mb.tasks_dir / ctx.task_id
@@ -948,7 +995,10 @@ def render_task(
         config=effective_config,
     )
 
-    return out_dir
+    # Atomic publish: rename `<task>.inprogress` → `<task>`. Any earlier raise
+    # leaves only the staging dir, which the adapter's runner cleans up.
+    out_dir.rename(final_dir)
+    return final_dir
 
 
 def _manual_task_digest(task_dir: Path) -> str:
@@ -1240,22 +1290,31 @@ def _materialized_package_source(mb: MlsBenchRoot, pkg: str) -> Path | None:
         content = op.get("content", "")
         if kind == "create":
             target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_text("".join(_content_lines(content)))
+            new_text = "".join(_content_lines(content))
         elif kind == "replace" and target.exists():
             lines = target.read_text().splitlines(keepends=True)
             s = int(op["start_line"]) - 1
             e = _end_index(lines, int(op["end_line"]))
-            target.write_text("".join(lines[:s] + _content_lines(content) + lines[e:]))
+            new_text = "".join(lines[:s] + _content_lines(content) + lines[e:])
         elif kind == "insert":
             lines = target.read_text().splitlines(keepends=True) if target.exists() else []
             after = int(op.get("after_line", 0))
-            target.write_text("".join(lines[:after] + _content_lines(content) + lines[after:]))
+            new_text = "".join(lines[:after] + _content_lines(content) + lines[after:])
         elif kind == "delete" and target.exists():
             lines = target.read_text().splitlines(keepends=True)
             start, end = _delete_bounds(op)
             s = start - 1
             e = _end_index(lines, end)
-            target.write_text("".join(lines[:s]) + "".join(lines[e:]))
+            new_text = "".join(lines[:s]) + "".join(lines[e:])
+        else:
+            continue
+        _assert_python_syntax(
+            new_text,
+            rel_path=rel,
+            origin=f"pre_edit.py for {pkg}",
+            task_id=f"materialize:{pkg}",
+        )
+        target.write_text(new_text)
     _PKG_SRC_CACHE[cache_key] = dst
     return dst
 
@@ -1777,7 +1836,16 @@ def _starting_workspace_text(
                 e = _end_index(lines, end)
                 del lines[s:e]
         if touched:
-            return "".join(lines) if exists else None
+            if not exists:
+                return None
+            out = "".join(lines)
+            _assert_python_syntax(
+                out,
+                rel_path=rel_filename,
+                origin="mid_edit.py (and underlying pre_edit.py)",
+                task_id=ctx.task_id,
+            )
+            return out
     return text
 
 

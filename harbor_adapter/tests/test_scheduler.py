@@ -378,6 +378,40 @@ def test_wave_timeout_kills_stuck_processes_with_sigterm_then_sigkill(monkeypatc
         assert "[TIMEOUT]" in Path(entry["logs"][0]["log"]).read_text()
 
 
+def test_infer_reserved_gpu_count_bin_packs_fractional_jobs(tmp_path: Path):
+    """Regression for Codex #6: 9 × 0.4 GPU jobs need 5 bins, not ceil(3.6)=4.
+
+    Each bin can fit at most floor(1/0.4)=2 jobs at 0.4, so 9 such jobs need
+    ceil(9/2)=5 bins. The previous `ceil(sum)` heuristic underestimated this,
+    causing the rendered task.toml + docker-compose to under-reserve GPUs.
+    """
+    score_task = _load_score_task()
+    cfg = {
+        "use_cuda": True,
+        "seeds": [42],
+        "test_cmds": [
+            {"cmd": f"x{i}.sh", "label": f"x{i}", "group": 1,
+             "compute": 0.4, "time": "0:01:00", "package": "pkg"}
+            for i in range(9)
+        ],
+    }
+    assert score_task._infer_reserved_gpu_count(cfg) == 5
+
+
+def test_infer_reserved_gpu_count_multiplies_by_seeds(tmp_path: Path):
+    """Per-seed fractional jobs accumulate: 1 entry × 0.5 GPU × 4 seeds = 2 bins."""
+    score_task = _load_score_task()
+    cfg = {
+        "use_cuda": True,
+        "seeds": [1, 2, 3, 4],
+        "test_cmds": [
+            {"cmd": "x.sh", "label": "x", "group": 1,
+             "compute": 0.5, "time": "0:01:00", "package": "pkg"},
+        ],
+    }
+    assert score_task._infer_reserved_gpu_count(cfg) == 2
+
+
 def test_oversized_compute_is_rejected_before_launch(monkeypatch, tmp_path: Path):
     score_task = _load_score_task()
     _install_fake_popen(monkeypatch, score_task)

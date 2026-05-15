@@ -190,12 +190,15 @@ OPS = [
         "end_line": 10,
         "content": _COMPANY_HR_CLIENT,
     },
-    # Op 7: Patch chat_env.py OpenAI client base_url (lines 12-14)
+    # Op 7: Patch chat_env.py OpenAI client base_url (lines 13-16).
+    # Original block is the 4-line `client = OpenAI(\n  api_key=...,\n  base_url="",\n)`.
+    # Replacing 12-14 instead deleted the `OPENAI_API_KEY=` line above and
+    # left the closing `)` orphaned at line 16 (caught by adapter syntax guard).
     {
         "op": "replace",
         "file": "chatdev-macnet/chatdev/chat_env.py",
-        "start_line": 12,
-        "end_line": 14,
+        "start_line": 13,
+        "end_line": 16,
         "content": _CHAT_ENV_CLIENT,
     },
 ]
