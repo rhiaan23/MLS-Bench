@@ -1,6 +1,6 @@
-timestamp,model,is_final,seed,asr_ResNet20_C10,asr_VGG11BN_C10,asr_MobileNetV2_C10,asr_ResNet20_C100,asr_MobileNetV2_C100,elapsed_ResNet20-C10,elapsed_VGG11BN-C10,elapsed_MobileNetV2-C10,elapsed_ResNet20-C100,elapsed_MobileNetV2-C100
-2026-04-02T14:40:18.755098+00:00,baseline:onepixel,true,42,0.89,0.66,0.82,0.84,0.87,,777.5,,,
-2026-04-02T15:42:53.440642+00:00,baseline:sparsefool,true,42,0.31,0.41,0.35,0.31,0.21,5814.2,5802.1,5127.7,5590.6,4987.5
-2026-04-24T06:46:13.460021+00:00,baseline:jsma,true,42,0.3,0.23,0.31,0.39,0.33,48,48,54,129,206
-2026-04-02T14:46:54.812983+00:00,baseline:pixle,true,42,0.48,0.27,0.5,0.59,0.49,,381.6,,99.5,
-2026-04-24T09:44:36.130424+00:00,baseline:sparse_rs,true,42,1.0,1.0,1.0,1.0,1.0,11,17,14,14,9
+timestamp,model,is_final,seed,asr_Rebuffi_R18_L2,asr_Augustin_L2,asr_Engstrom_L2,elapsed_Rebuffi-R18-L2,elapsed_Augustin-L2,elapsed_Engstrom-L2
+2026-05-18T04:38:11.828176+00:00,baseline:onepixel,false,42,0.1,0.18,0.18,170.5,532.1,559.8
+2026-05-18T04:28:40.678695+00:00,baseline:sparsefool,false,42,0.166667,0.113333,0.28,218.2,599.5,562.2
+2026-05-18T04:29:14.522850+00:00,baseline:jsma,false,42,0.026667,0.046667,0.066667,156.7,192.3,210.6
+2026-05-18T04:27:00.635847+00:00,baseline:pixle,false,42,0.006667,0.02,0.006667,17.9,24.0,29.9
+2026-05-18T04:31:45.729765+00:00,baseline:sparse_rs,false,42,0.853333,0.946667,0.966667,146.6,222.4,182.5
