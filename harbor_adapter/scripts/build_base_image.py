@@ -117,11 +117,21 @@ def _apply_pre_edit_ops(mb, pkg: str, root: Path) -> None:
         dst.write_text(new_text)
 
 
-def _render_dockerfile(workdir: str, pkg: str, data_entries: list[tuple[str, str]]) -> str:
+def _render_dockerfile(
+    workdir: str,
+    pkg: str,
+    data_entries: list[tuple[str, str]],
+    pkg_env: dict[str, str] | None = None,
+) -> str:
     """Dockerfile that reads inputs via BuildKit named build contexts so we
     skip the /tmp staging copy entirely. ``data_entries`` is
-    [(context_name, container_path), …] for each data dep.
+    [(context_name, container_path), …] for each data dep. ``pkg_env`` is
+    the pkg_config ``env`` dict — baked as ENV so things like ``HF_HOME``
+    take effect for the agent's interactive shell too (the verifier already
+    re-injects these via package_envs.json, but the agent doesn't get that
+    pass).
     """
+    pkg_env = pkg_env or {}
     lines = [
         "# syntax=docker/dockerfile:1.6",
         "ARG BASE_IMAGE",
@@ -154,6 +164,12 @@ def _render_dockerfile(workdir: str, pkg: str, data_entries: list[tuple[str, str
             lines.append(f"COPY --from={name} . {container}/")
     else:
         lines.append("# (no data deps)")
+    if pkg_env:
+        lines.extend(["", "# pkg_config.env, baked so the agent shell sees them too."])
+        for k, v in pkg_env.items():
+            # ENV expects a single line; escape internal newlines defensively.
+            v_str = str(v).replace("\n", " ")
+            lines.append(f"ENV {k}={v_str}")
     lines.extend([
         "",
         "# Sentinel + ENTRYPOINT [] so Harbor's `sh -c sleep infinity` runs as-is",
@@ -357,6 +373,7 @@ def build_one(
 
         (ctx / "Dockerfile").write_text(_render_dockerfile(
             workdir=workdir, pkg=pkg, data_entries=data_ctx_entries,
+            pkg_env=pkg_cfg.get("env") or {},
         ))
 
         argv = [
