@@ -205,10 +205,15 @@ def _resolve_data_deps(
     warnings: list[str] = []
     data_root = mb.vendor_dir / "data"
     data_root_resolved = data_root.resolve()
+    project_root = mb.root
     total_bytes = 0
     for dep in pkg_config.get("data_deps") or []:
         name = dep.get("name", "")
-        host_template = str(dep.get("host_path", "")).replace("{data_root}", str(data_root))
+        host_template = (
+            str(dep.get("host_path", ""))
+            .replace("{project_root}", str(project_root))
+            .replace("{data_root}", str(data_root))
+        )
         host = Path(host_template).expanduser()
         container = str(dep.get("container_path", "")).rstrip("/")
         if not container:

@@ -1386,6 +1386,21 @@ def _stage_verifier_assets(
     if scripts_src.exists():
         shutil.copytree(scripts_src, tests_dir / "eval" / "scripts", dirs_exist_ok=True)
 
+    # Task-bundled third-party resources (e.g. dlm-dkv-policy ships pristine
+    # snapshots of upstream dLLM-cache / D2Cache / Elastic-Cache LLaDA model
+    # code under tasks/<t>/third_party/). These are loaded at verify time
+    # via MLSBENCH_TASK_DIR / "third_party" / ..., which score_task.py points
+    # at tests/meta/. Copy them into tests/meta/third_party/ so that lookup
+    # resolves on Harbor — they're verifier-side resources, not editable
+    # surface, so they belong here rather than in the base image.
+    third_party_src = task_dir / "third_party"
+    if third_party_src.exists():
+        shutil.copytree(
+            third_party_src, meta / "third_party",
+            dirs_exist_ok=True,
+            ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
+        )
+
     # mlsbench source tree — required by parser.py / score_spec.py / score_task.py
     # to import mlsbench.scoring.* and mlsbench.agent.parsers. NOT baked into
     # the base image because agent shell would see it; instead we ship it here
