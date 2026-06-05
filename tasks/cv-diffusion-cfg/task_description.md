@@ -58,7 +58,7 @@ allowed denoiser evaluations, or evaluation code.
 |------------|-------------|
 | `cfg`      | Standard classifier-free guidance (Ho & Salimans, arXiv:2207.12598): renoise with the guided noise prediction. |
 | `cfgpp`    | CFG++ (Chung et al., ICLR 2025, arXiv:2406.08070): renoise with the unconditional noise prediction, keeping the trajectory on the data manifold. |
-| `zeroinit` | CFG++ with zero-initialization (skip the first K = 2 sampling steps before applying guidance). |
+| `zeroinit` | Zero-init + rescaled standard CFG: skip guidance for the first K = 2 sampling steps, then renoise with the guided prediction. |
 
 ## Fixed Pipeline
 
@@ -69,12 +69,10 @@ allowed denoiser evaluations, or evaluation code.
 ## Evaluation
 
 Evaluation runs the text-to-image sampling pipeline on the model variants
-above. Metrics reported:
+above. The task-visible metric and official score use **FID** computed against
+a reference image set (lower is better). The generation script may compute
+CLIP diagnostics internally, but CLIP is not part of the task score or
+agent-visible feedback.
 
-- **CLIP score** (cosine similarity between generated image and text prompt;
-  higher is better).
-- **FID** computed against a reference image set (lower is better).
-
-Task scoring uses per-variant FID (lower is better). A good method should
-improve image quality without sacrificing the prompt-following behaviour
-provided by guidance.
+A good method should improve image quality without sacrificing the
+prompt-following behaviour provided by guidance.
