@@ -190,12 +190,14 @@ OPS = [
         "end_line": 10,
         "content": _COMPANY_HR_CLIENT,
     },
-    # Op 7: Patch chat_env.py OpenAI client base_url (lines 12-14)
+    # Op 7: Patch chat_env.py OpenAI client base_url. The client block is at
+    # lines 13-16 (`client = OpenAI(` ... closing `)`); line 12 is the
+    # `OPENAI_API_KEY = ...` def, which _CHAT_ENV_CLIENT references, so keep it.
     {
         "op": "replace",
         "file": "chatdev-macnet/chatdev/chat_env.py",
-        "start_line": 12,
-        "end_line": 14,
+        "start_line": 13,
+        "end_line": 16,
         "content": _CHAT_ENV_CLIENT,
     },
 ]
