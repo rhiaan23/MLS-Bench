@@ -1,6 +1,6 @@
 #!/bin/bash
 # Oracle solution: applies the strongest baseline for ml-ensemble-boosting
-# (xgboost_style) to the workspace, then exits.
+# (gradient_boosting) to the workspace, then exits.
 #
 # Verification (run by Harbor verifier) will diff the workspace against
 # /opt/mlsbench/original/, find only in-range modifications, run all eval
@@ -64,6 +64,6 @@ for op in ops:
         print(f"unknown op: {op['op']}", file=sys.stderr)
         sys.exit(2)
 
-print(f"applied {len(ops)} baseline edit ops (xgboost_style) to {workdir}")
+print(f"applied {len(ops)} baseline edit ops (gradient_boosting) to {workdir}")
 print(f"prepared {len(overrides)} oracle cmd override(s) for verifier")
 PY

@@ -1,5 +1,8 @@
 {
   "rigorous_codebase": true,
+  "seeds": [
+    42
+  ],
   "test_cmds": [
     {
       "cmd": "scripts/blobs.sh",
