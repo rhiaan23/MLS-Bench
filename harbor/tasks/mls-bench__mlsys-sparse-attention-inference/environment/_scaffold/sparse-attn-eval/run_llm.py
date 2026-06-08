@@ -63,25 +63,96 @@ def load_filler_text(path):
     raise FileNotFoundError(f"no filler text at {path} or /data/longctx")
 
 
-def build_model(model_path, target_ctx, dtype=torch.float16):
+def cuda_device_summary():
+    if not torch.cuda.is_available():
+        return "cpu"
+    idx = torch.cuda.current_device()
+    props = torch.cuda.get_device_properties(idx)
+    return f"{props.name} cc={props.major}.{props.minor} cuda={torch.version.cuda}"
+
+
+def configure_cuda_backend():
+    if not torch.cuda.is_available():
+        print("CUDA_DIAGNOSTIC device=cpu dtype=float32", flush=True)
+        return
+    try:
+        torch.backends.cuda.matmul.allow_tf32 = True
+        torch.set_float32_matmul_precision("high")
+    except Exception as exc:
+        print(f"CUDA_DIAGNOSTIC tf32_config_failed={exc}", flush=True)
+    for name, enabled in (
+        ("enable_flash_sdp", True),
+        ("enable_math_sdp", True),
+        ("enable_mem_efficient_sdp", False),
+        ("enable_cudnn_sdp", False),
+    ):
+        setter = getattr(torch.backends.cuda, name, None)
+        if setter is None:
+            continue
+        try:
+            setter(enabled)
+        except Exception as exc:
+            print(f"CUDA_DIAGNOSTIC {name}_failed={exc}", flush=True)
+    print(f"CUDA_DIAGNOSTIC device={cuda_device_summary()} backend=sdpa flash=on math=on mem_efficient=off cudnn=off", flush=True)
+
+
+def select_model_dtype():
+    # Default fp16 to stay numerically consistent with the recorded baselines,
+    # which were all computed in fp16. The H20-specific SIGFPE on the fp16
+    # prefill path is opt-out via SPARSE_ATTN_DTYPE=bf16 (or auto). NOTE: changing
+    # dtype changes metric values -- if you switch, re-baseline the whole task so
+    # the leaderboard stays self-consistent.
+    if not torch.cuda.is_available():
+        return torch.float32
+    choice = os.environ.get("SPARSE_ATTN_DTYPE", "fp16").lower()
+    if choice in ("bf16", "bfloat16"):
+        if torch.cuda.is_bf16_supported():
+            return torch.bfloat16
+        print("CUDA_DIAGNOSTIC bf16_requested_but_unsupported=true fallback_dtype=float16", flush=True)
+        return torch.float16
+    if choice == "auto":
+        return torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
+    return torch.float16
+
+
+def sync_cuda(label):
+    if torch.cuda.is_available():
+        torch.cuda.synchronize()
+    print(f"CUDA_SYNC label={label}", flush=True)
+
+
+def build_model(model_path, target_ctx, dtype=None):
     from transformers import AutoModelForCausalLM, AutoTokenizer
-    print(f"Loading {model_path} (target_ctx={target_ctx})...", flush=True)
+    configure_cuda_backend()
+    dtype = dtype or select_model_dtype()
+    attn_impl = os.environ.get("SPARSE_ATTN_IMPL", "sdpa")
+    print(
+        f"Loading {model_path} (target_ctx={target_ctx}, dtype={dtype}, "
+        f"attn_impl={attn_impl}, device={cuda_device_summary()})...",
+        flush=True,
+    )
     tok = AutoTokenizer.from_pretrained(model_path, trust_remote_code=False)
     if tok.pad_token_id is None:
         tok.pad_token_id = tok.eos_token_id
     model = AutoModelForCausalLM.from_pretrained(
         model_path,
         torch_dtype=dtype,
-        attn_implementation="eager",  # we will monkey-patch the eager class
-    ).cuda().eval()
+        attn_implementation=attn_impl,
+    )
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    model = model.to(device).eval()
 
     # Qwen2.5 native max_position_embeddings is 32768 — 8K target is well
     # within the supported range, so no RoPE scaling.
     native_ctx = int(getattr(model.config, "max_position_embeddings", 32768))
+    if native_ctx <= 0:
+        print(f"NUMERIC_GUARD label=native_ctx value={native_ctx} fallback={target_ctx}", flush=True)
+        native_ctx = max(target_ctx, 1)
     if target_ctx > native_ctx:
-        scale = target_ctx / native_ctx
+        scale = target_ctx / max(native_ctx, 1)
         apply_ntk_rope_scaling(model, scale)
         model.config.max_position_embeddings = max(target_ctx, native_ctx)
+    print("[run_llm] model load complete", flush=True)
     return model, tok
 
 
@@ -226,6 +297,14 @@ def env_niah(args):
                 args.context_len - 32, instr_text,
             ).cuda()
 
+            if ci == 0:
+                print(
+                    "FIRST_FORWARD_DIAGNOSTIC "
+                    f"env=niah_8k prompt_tokens={ids.size(1)} dtype={next(model.parameters()).dtype} "
+                    f"device={next(model.parameters()).device}",
+                    flush=True,
+                )
+                sync_cuda("niah_before_first_generate")
             out = model.generate(
                 ids,
                 max_new_tokens=24,
@@ -320,6 +399,14 @@ def env_qasper(args):
             ctx_truncated = tok.decode(ctx_ids, skip_special_tokens=True)
             user_text = instr_text + pre_text + ctx_truncated + qa_text
             ids = _format_chat(tok, user_text).cuda()
+            if ei == 0:
+                print(
+                    "FIRST_FORWARD_DIAGNOSTIC "
+                    f"env=longbench_qasper prompt_tokens={ids.size(1)} dtype={next(model.parameters()).dtype} "
+                    f"device={next(model.parameters()).device}",
+                    flush=True,
+                )
+                sync_cuda("qasper_before_first_generate")
             out = model.generate(
                 ids,
                 max_new_tokens=args.max_new_tokens,
@@ -398,6 +485,14 @@ def env_multifieldqa_en(args):
             ctx_truncated = tok.decode(ctx_ids, skip_special_tokens=True)
             user_text = prefix + ctx_truncated + suffix
             ids = _format_chat(tok, user_text).cuda()
+            if ei == 0:
+                print(
+                    "FIRST_FORWARD_DIAGNOSTIC "
+                    f"env=longbench_multifieldqa_en prompt_tokens={ids.size(1)} dtype={next(model.parameters()).dtype} "
+                    f"device={next(model.parameters()).device}",
+                    flush=True,
+                )
+                sync_cuda("multifieldqa_before_first_generate")
             out = model.generate(
                 ids,
                 max_new_tokens=args.max_new_tokens,

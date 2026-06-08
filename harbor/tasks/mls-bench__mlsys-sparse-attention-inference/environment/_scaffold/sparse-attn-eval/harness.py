@@ -27,6 +27,14 @@ import torch.nn.functional as F
 _DENSITY_RECORDS = []
 
 
+def _cuda_device_summary():
+    if not torch.cuda.is_available():
+        return "cpu"
+    idx = torch.cuda.current_device()
+    props = torch.cuda.get_device_properties(idx)
+    return f"{props.name} cc={props.major}.{props.minor} cuda={torch.version.cuda}"
+
+
 def reset_density():
     _DENSITY_RECORDS.clear()
 
@@ -99,6 +107,18 @@ def patch_qwen(model, sparse_module):
         repeat_kv,
     )
 
+    def is_patchable_qwen_attention(module):
+        class_name = module.__class__.__name__
+        if isinstance(module, Qwen2Attention):
+            return True
+        if class_name in {"Qwen2Attention", "Qwen2SdpaAttention", "Qwen2FlashAttention2"}:
+            return all(hasattr(module, name) for name in ("q_proj", "k_proj", "v_proj", "o_proj"))
+        return (
+            class_name.startswith("Qwen2")
+            and class_name.endswith("Attention")
+            and all(hasattr(module, name) for name in ("q_proj", "k_proj", "v_proj", "o_proj"))
+        )
+
     def make_forward(sa):
         def forward(
             self,
@@ -113,6 +133,21 @@ def patch_qwen(model, sparse_module):
             **kwargs,
         ):
             bsz, q_len, _ = hidden_states.size()
+            if q_len <= 0 or int(getattr(self, "head_dim", 0)) <= 0:
+                print(
+                    "ATTN_DIAGNOSTIC "
+                    f"phase=invalid layer={getattr(self, 'layer_idx', 'unknown')} "
+                    f"q_len={q_len} head_dim={getattr(self, 'head_dim', None)}",
+                    flush=True,
+                )
+                raise RuntimeError("Invalid Qwen attention shape before sparse forward")
+            if int(getattr(self, "layer_idx", -1)) == 0:
+                print(
+                    "ATTN_DIAGNOSTIC "
+                    f"phase=forward_start q_len={q_len} dtype={hidden_states.dtype} "
+                    f"device={hidden_states.device} cuda={_cuda_device_summary()}",
+                    flush=True,
+                )
 
             query_states = self.q_proj(hidden_states)
             key_states = self.k_proj(hidden_states)
@@ -148,7 +183,7 @@ def patch_qwen(model, sparse_module):
             if key_states.dtype != target_dtype:
                 key_states = key_states.to(target_dtype)
 
-            scale = 1.0 / math.sqrt(self.head_dim)
+            scale = 1.0 / math.sqrt(float(self.head_dim))
             attn_output = sa(
                 query_states, key_states, value_states,
                 is_causal=True, scale=scale,
@@ -165,7 +200,7 @@ def patch_qwen(model, sparse_module):
 
     n_patched = 0
     for module in model.modules():
-        if isinstance(module, Qwen2Attention):
+        if is_patchable_qwen_attention(module):
             sa = sparse_module(
                 head_dim=module.head_dim,
                 num_heads=module.num_heads,
@@ -199,6 +234,8 @@ def patch_model(model, modality, sparse_factory):
     else:
         raise ValueError(f"unknown modality: {modality}")
     print(f"[harness] patched {n} attention layers ({modality})", flush=True)
+    if n <= 0:
+        raise RuntimeError("no Qwen2 attention layers were patched; refusing to run native attention")
     return n
 
 
