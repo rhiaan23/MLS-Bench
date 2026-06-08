@@ -1,5 +1,11 @@
 """BaseAgent: abstract base class for MLS-Bench agents."""
 
+# Defer annotation evaluation: this module is imported (via mlsbench.agent's
+# __init__) by the Harbor verifier's score_task.py, which several task images
+# run under Python 3.8 — without this, PEP 585 builtin generics in signatures
+# (e.g. ``-> list[dict]``) crash at import with "'type' object is not subscriptable".
+from __future__ import annotations
+
 import copy
 import importlib.util
 import json

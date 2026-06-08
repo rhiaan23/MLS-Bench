@@ -1,5 +1,11 @@
 """BaseAgent: abstract base class for MLS-Bench agents."""
 
+# Defer annotation evaluation: this module is imported (via mlsbench.agent's
+# __init__) by the Harbor verifier's score_task.py, which several task images
+# run under Python 3.8 — without this, PEP 585 builtin generics in signatures
+# (e.g. ``-> list[dict]``) crash at import with "'type' object is not subscriptable".
+from __future__ import annotations
+
 import copy
 import importlib.util
 import json
@@ -70,6 +76,7 @@ class BaseAgent(ABC):
             use_cuda=use_cuda_override,
             platform=global_config.get("platform", ""),
             gpu_devices=global_config.get("gpu_devices", ""),
+            compute_scale=global_config.get("compute_scale", 1.0),
             global_config=global_config,
             allow_web_search=global_config.get("allow_web_search", False),
             tavily_api_key=(global_config.get("providers", {}).get("tavily", {}) or {}).get("api_key", ""),
