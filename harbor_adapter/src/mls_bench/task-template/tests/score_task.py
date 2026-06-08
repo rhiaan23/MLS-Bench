@@ -1160,14 +1160,26 @@ def cmd_run_evals(args: argparse.Namespace) -> int:
             if not runnable_tasks:
                 continue
 
-            wave_results = _run_eval_wave(
-                tasks=runnable_tasks,
-                assignments=runnable_assignments,
-                task_meta=task_meta,
-                workspace_root=workspace_root,
-                default_pkg=default_pkg,
-                out_dir=out_dir,
-            )
+            # Expose tests/meta at the legacy /workspace/_task path that some
+            # eval wrappers reference (humanoid: `python _task/scripts/...`;
+            # dllm: `--data-path /workspace/_task/data/...`). Native MLSBench
+            # bind-mounts the task dir there, but Harbor has no bind mounts, so
+            # symlink the (read-only) task_meta — which ships scripts/ and data/
+            # — for the duration of the eval wave. The guard exempts the _task
+            # top-level dir and runs as a separate pre-eval invocation, so this
+            # never affects the edit-range diff. (issue #25.4, #25.5)
+            eval_task_links = _install_budget_legacy_links(task_meta, workspace_root)
+            try:
+                wave_results = _run_eval_wave(
+                    tasks=runnable_tasks,
+                    assignments=runnable_assignments,
+                    task_meta=task_meta,
+                    workspace_root=workspace_root,
+                    default_pkg=default_pkg,
+                    out_dir=out_dir,
+                )
+            finally:
+                _remove_budget_legacy_links(eval_task_links)
             records.update(wave_results)
             for task in runnable_tasks:
                 entry = task["entry"]
