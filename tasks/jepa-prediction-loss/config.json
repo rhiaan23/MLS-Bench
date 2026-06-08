@@ -57,7 +57,7 @@
       ]
     },
     {
-      "filename": "eb_jepa/losses.py",
+      "filename": "eb_jepa/eb_jepa/losses.py",
       "read": [
         {
           "start": -1,
@@ -66,7 +66,7 @@
       ]
     },
     {
-      "filename": "eb_jepa/jepa.py",
+      "filename": "eb_jepa/eb_jepa/jepa.py",
       "read": [
         {
           "start": -1,

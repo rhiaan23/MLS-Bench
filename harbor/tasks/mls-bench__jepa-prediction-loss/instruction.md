@@ -55,8 +55,8 @@ or deleting existing ones — will cause your submission to be invalid.
 
 
 Other files you may **read** for context (do not modify):
-- `eb_jepa/losses.py`
-- `eb_jepa/jepa.py`
+- `eb_jepa/eb_jepa/losses.py`
+- `eb_jepa/eb_jepa/jepa.py`
 
 
 ## Readable Context
