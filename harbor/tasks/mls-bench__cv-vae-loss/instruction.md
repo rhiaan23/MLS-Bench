@@ -156,7 +156,12 @@ or deleting existing ones — will cause your submission to be invalid.
     54: 
     55:     You may also use torch.fft for frequency-domain operations, or any
     56:     other approach you think will improve reconstruction quality.
-    57:     """
+    57: 
+    58:     Evaluation metrics (for reference, you do NOT compute these):
+    59:         - rFID: Reconstruction FID (lower is better)
+    60:         - PSNR: Peak signal-to-noise ratio in dB (higher is better)
+    61:         - SSIM: Structural similarity (higher is better)
+    62:     """
     63: 
     64:     def __init__(self, device):
     65:         super().__init__()
@@ -380,7 +385,7 @@ or deleting existing ones — will cause your submission to be invalid.
    283:     max_steps = int(os.environ.get('MAX_STEPS', 10000))
    284:     eval_interval = int(os.environ.get('EVAL_INTERVAL', 10000))
    285:     batch_size = int(os.environ.get('BATCH_SIZE', 128))
-   286:     lr = float(os.environ.get('LR', 1e-4))
+   286:     lr = float(os.environ.get('LR', 2e-4))
    287:     ema_rate = float(os.environ.get('EMA_RATE', 0.999))
    288: 
    289:     # ── DDP setup ──────────────────────────────────────────────────────────
@@ -498,7 +503,7 @@ or deleting existing ones — will cause your submission to be invalid.
    401:             ref_grads = torch.autograd.grad(ref_loss, last_layer, retain_graph=True)[0].detach()
    402:             g_grads = torch.autograd.grad(g_loss, last_layer, retain_graph=True)[0].detach()
    403:             disc_weight = torch.clamp(
-   404:                 ref_grads.norm(p=2) / g_grads.norm(p=2).clamp(min=1e-8), 0.0, 1e4)
+   404:                 ref_grads.norm(p=2) / g_grads.norm(p=2).clamp(min=1e-8), 0.0, 10.0)
    405:             loss = loss + disc_weight * g_loss
    406:             metrics['g_loss'] = g_loss.item()
    407:             metrics['disc_w'] = disc_weight.item()
@@ -514,63 +519,67 @@ or deleting existing ones — will cause your submission to be invalid.
    417:         # 2) Discriminator update — every step after disc_start (FP32, no AMP)
    418:         if has_disc and disc_factor > 0:
    419:             criterion.disc_opt.zero_grad()
-   420:             x_real = x.float().detach().requires_grad_(True)
-   421:             logits_real = criterion.disc(x_real)
-   422:             logits_fake_d = criterion.disc(recon.float().detach())
-   423:             d_loss = (F.relu(1 + logits_fake_d) + F.relu(1 - logits_real)).mean()
-   424:             # Gradient penalty (diffusers-style)
-   425:             gp_grads = torch.autograd.grad(
-   426:                 outputs=logits_real, inputs=x_real,
-   427:                 grad_outputs=torch.ones_like(logits_real),
-   428:                 create_graph=True, retain_graph=True, only_inputs=True,
-   429:             )[0]
-   430:             gp = 10.0 * ((gp_grads.reshape(gp_grads.shape[0], -1).norm(2, dim=1) - 1) ** 2).mean()
-   431:             d_loss = d_loss + gp
-   432:             d_loss.backward()
-   433:             criterion.disc_opt.step()
-   434:             metrics['d_loss'] = d_loss.item()
-   435: 
-   436:         with torch.no_grad():
-   437:             for p_ema, p in zip(ema_vae.parameters(), vae.parameters()):
-   438:                 p_ema.mul_(ema_rate).add_(p, alpha=1 - ema_rate)
+   420:             logits_real = criterion.disc(x.float())
+   421:             logits_fake_d = criterion.disc(recon.float().detach())
+   422:             d_loss = (F.relu(1 + logits_fake_d) + F.relu(1 - logits_real)).mean()
+   423:             _disc_was_training = criterion.disc.training
+   424:             criterion.disc.eval()
+   425:             x_real = x.float().detach().requires_grad_(True)
+   426:             logits_real_gp = criterion.disc(x_real)
+   427:             gp_grads = torch.autograd.grad(
+   428:                 outputs=logits_real_gp, inputs=x_real,
+   429:                 grad_outputs=torch.ones_like(logits_real_gp),
+   430:                 create_graph=True, retain_graph=True, only_inputs=True,
+   431:             )[0]
+   432:             if _disc_was_training:
+   433:                 criterion.disc.train()
+   434:             gp = 10.0 * ((gp_grads.reshape(gp_grads.shape[0], -1).norm(2, dim=1) - 1) ** 2).mean()
+   435:             d_loss = d_loss + gp
+   436:             d_loss.backward()
+   437:             criterion.disc_opt.step()
+   438:             metrics['d_loss'] = d_loss.item()
    439: 
-   440:         if is_main and step % 200 == 0:
-   441:             dt = time.time() - t0
-   442:             m_str = " ".join(f"{k}={v:.4f}" for k, v in metrics.items())
-   443:             print(f"step {step}/{max_steps} | loss={loss.item():.4f} {m_str} "
-   444:                   f"| {dt:.1f}s", flush=True)
-   445:             t0 = time.time()
-   446: 
-   447:         if step % eval_interval == 0 or step == max_steps:
-   448:             if is_main:
-   449:                 print(f"Eval at step {step}...", flush=True)
-   450:             eval_model = ema_wrapper if step >= max_steps // 2 else \
-   451:                 VAEWrapper(vae)
-   452:             rfid, psnr, ssim_val = evaluate_reconstruction(
-   453:                 eval_model, test_loader, device, output_dir, rank, world_size)
-   454:             if is_main:
-   455:                 if rfid < best_rfid:
-   456:                     best_rfid = rfid
-   457:                 if step < max_steps:
-   458:                     print(f"TRAIN_METRICS: step={step}, rfid={rfid:.2f}, "
-   459:                           f"psnr={psnr:.2f}, ssim={ssim_val:.4f}", flush=True)
-   460:                 else:
-   461:                     print(f"TEST_METRICS: rfid={rfid:.2f}, psnr={psnr:.2f}, "
-   462:                           f"ssim={ssim_val:.4f}, best_rfid={best_rfid:.2f}",
-   463:                           flush=True)
-   464: 
-   465:     # ── Save ──────────────────────────────────────────────────────────────────
-   466:     if is_main:
-   467:         print(f"Saving checkpoint to {output_dir}/checkpoint.pth", flush=True)
-   468:         torch.save({
-   469:             'step': max_steps,
-   470:             'model_state_dict': vae.state_dict(),
-   471:             'ema_model_state_dict': ema_vae.state_dict(),
-   472:             'best_rfid': best_rfid,
-   473:         }, os.path.join(output_dir, 'checkpoint.pth'))
-   474: 
-   475:     if use_ddp:
-   476:         dist.destroy_process_group()
+   440:         with torch.no_grad():
+   441:             for p_ema, p in zip(ema_vae.parameters(), vae.parameters()):
+   442:                 p_ema.mul_(ema_rate).add_(p, alpha=1 - ema_rate)
+   443: 
+   444:         if is_main and step % 200 == 0:
+   445:             dt = time.time() - t0
+   446:             m_str = " ".join(f"{k}={v:.4f}" for k, v in metrics.items())
+   447:             print(f"step {step}/{max_steps} | loss={loss.item():.4f} {m_str} "
+   448:                   f"| {dt:.1f}s", flush=True)
+   449:             t0 = time.time()
+   450: 
+   451:         if step % eval_interval == 0 or step == max_steps:
+   452:             if is_main:
+   453:                 print(f"Eval at step {step}...", flush=True)
+   454:             eval_model = ema_wrapper if step >= max_steps // 2 else \
+   455:                 VAEWrapper(vae)
+   456:             rfid, psnr, ssim_val = evaluate_reconstruction(
+   457:                 eval_model, test_loader, device, output_dir, rank, world_size)
+   458:             if is_main:
+   459:                 if rfid < best_rfid:
+   460:                     best_rfid = rfid
+   461:                 if step < max_steps:
+   462:                     print(f"TRAIN_METRICS: step={step}, rfid={rfid:.2f}, "
+   463:                           f"psnr={psnr:.2f}, ssim={ssim_val:.4f}", flush=True)
+   464:                 else:
+   465:                     print(f"TEST_METRICS: rfid={rfid:.2f}, psnr={psnr:.2f}, "
+   466:                           f"ssim={ssim_val:.4f}, best_rfid={best_rfid:.2f}",
+   467:                           flush=True)
+   468: 
+   469:     # ── Save ──────────────────────────────────────────────────────────────────
+   470:     if is_main:
+   471:         print(f"Saving checkpoint to {output_dir}/checkpoint.pth", flush=True)
+   472:         torch.save({
+   473:             'step': max_steps,
+   474:             'model_state_dict': vae.state_dict(),
+   475:             'ema_model_state_dict': ema_vae.state_dict(),
+   476:             'best_rfid': best_rfid,
+   477:         }, os.path.join(output_dir, 'checkpoint.pth'))
+   478: 
+   479:     if use_ddp:
+   480:         dist.destroy_process_group()
 ```
 
 ## Reference Baselines
