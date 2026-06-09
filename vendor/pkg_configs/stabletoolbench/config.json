@@ -11,6 +11,7 @@
       "host_path": "{data_root}/stabletoolbench/server_data",
       "container_path": "/data/stabletoolbench/server_data",
       "prepare": "vendor/data_scripts/stabletoolbench/prepare_data.py",
+      "ready_files": ["{data_root}/stabletoolbench/server_data/tools"],
       "description": "StableToolBench server_data cache (tools/ + answer/) extracted from the HF dataset stabletoolbench/Cache; bound into the container at /data/stabletoolbench/server_data (TOOL_SERVER_DATA_DIR). Prepared on the host because install_cmds run inside the build container, where {data_root} is not expanded and not host-writable."
     }
   ],
