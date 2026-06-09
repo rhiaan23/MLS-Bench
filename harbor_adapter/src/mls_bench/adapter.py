@@ -1525,6 +1525,17 @@ def _stage_pristine_assets(
             if not _stat.S_ISREG(st.st_mode):
                 continue
             rel = fp.relative_to(scaffold_dir).as_posix()
+            # Keep in sync with the package-source walk + the verifier's
+            # _SKIP_SUFFIXES: a scaffold-only .so/.o/.egg-info entry would
+            # otherwise be emitted into the manifest while the verifier's
+            # _walk_workspace skips it, yielding a spurious deleted-file
+            # violation (issue #25.2 Error-2, Codex P2 on #29).
+            rel_parts = rel.split("/")
+            if any(part in (".git", "__pycache__") for part in rel_parts):
+                continue
+            if any(part.endswith(suf) for part in rel_parts
+                   for suf in (".pyc", ".pyo", ".so", ".o", ".egg-info")):
+                continue
             scaffold_index[rel] = fp
 
     declared_files = {
