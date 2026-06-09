@@ -195,6 +195,7 @@ test_entry = active_test_cmd(config)
 agent_args = prepare_runtime_args(parse_run_args(expand_script_argv(TASK_DIR / test_entry["cmd"])))
 
 baseline_params = {}
+forced_baseline_params = {}
 for baseline_name, baseline_cfg in config.get("baselines", {}).items():
     script_path = TASK_DIR / baseline_cfg["cmd"]
     script_args = prepare_runtime_args(parse_run_args(expand_script_argv(script_path)))
@@ -210,17 +211,61 @@ for baseline_name, baseline_cfg in config.get("baselines", {}).items():
     baseline_params[baseline_name] = params
     print(f"  baseline {baseline_name}: {params} params")
 
+    # Same-spec (matched-capacity) count: rebuild this baseline at the agent's
+    # FORCED config -- i.e. the read-only eval script's (d_model, d_ff,
+    # e_layers), carried on agent_args -- so the budget compares agent and
+    # baselines like-for-like. The per-dataset baseline configs are often
+    # *smaller* than the size the agent is forced to use (e.g. TimeXer uses
+    # d_model=128 on Weather), which is exactly what makes a plain "1.05 x
+    # largest *native* baseline" budget collapse below any honest d_model=512
+    # model and zero out every agent. TimesNet is skipped here on purpose: it is
+    # conv/FFT-based and balloons to ~3e8 params at d_model=512 (TSLib itself
+    # runs it at d_model<=64), so it is not a fair same-spec reference -- its
+    # properly tuned size still counts via the native term above.
+    if script_args.model != "TimesNet":
+        try:
+            forced = count_params(module_path, agent_args)
+            forced_baseline_params[baseline_name] = forced
+            print(f"  baseline {baseline_name} @ agent config: {forced} params")
+        except Exception as exc:
+            print(f"  baseline {baseline_name} @ agent config: ERROR ({exc})")
+
 if not baseline_params:
     print("WARNING: no baselines could be evaluated, skipping budget check")
     sys.exit(0)
 
 max_baseline_name = max(baseline_params, key=baseline_params.get)
 max_baseline_params = baseline_params[max_baseline_name]
-budget = int(max_baseline_params * 1.05)
+
+# Budget basis: 1.05 x the strongest baseline, compared at a *matched* capacity.
+#
+# The agent's eval scripts hardcode (d_model, d_ff, e_layers) and the agent
+# cannot change them (the scripts are read-only). On several datasets the
+# per-dataset-tuned baselines are configured *smaller* than that forced size,
+# so a plain "1.05 x largest *native* baseline" budget can fall below any honest
+# model built at the forced d_model -- making the budget unsatisfiable and
+# collapsing every agent's score to 0 (one failed setting zeroes the gmean)
+# through no fault of the agent.
+#
+# Fix: also consider each baseline rebuilt at the agent's forced config
+# (forced_baseline_params, gathered in the loop above) and take the larger
+# basis. This is a like-for-like, same-spec comparison -- the agent is held to
+# 1.05x the strongest baseline *at the same capacity it is forced to use*. It
+# only ever raises the budget (max with the native value), so no previously
+# passing run can newly fail.
+budget_basis_name = max_baseline_name
+budget_basis_params = max_baseline_params
+if forced_baseline_params:
+    forced_max_name = max(forced_baseline_params, key=forced_baseline_params.get)
+    forced_max_params = forced_baseline_params[forced_max_name]
+    if forced_max_params > budget_basis_params:
+        budget_basis_name = f"{forced_max_name}@agent_cfg"
+        budget_basis_params = forced_max_params
+budget = int(budget_basis_params * 1.05)
 
 agent_params = count_params(WORKSPACE_FILE, agent_args)
 print(f"\n  agent model: {agent_params} params")
-print(f"  budget: {budget} (1.05 x {max_baseline_name}={max_baseline_params})")
+print(f"  budget: {budget} (1.05 x {budget_basis_name}={budget_basis_params})")
 print(f"  env={os.environ.get('ENV', '')}, task={agent_args.task_name}, model_id={agent_args.model_id}")
 
 if agent_params > budget:
