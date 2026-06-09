@@ -3,6 +3,12 @@
 1. Skip overwrite prompt in train_utils.py (concurrent seeds race).
 2. Inject TRAIN_METRICS output into train.py for parser consumption.
 3. Inject TEST_METRICS output at end of training with best success rate.
+4. Route AutoTokenizer in lang_utils.py through the same cache_dir the
+   CLIPTextModelWithProjection load uses ($HF_HOME/clip). The upstream
+   code passes cache_dir only for the model and falls through to the
+   default ($HF_HOME/hub) for the tokenizer, which means a baked
+   snapshot at HF_HOME/clip satisfies the model load but the tokenizer
+   load goes online — fatal under HF_HUB_OFFLINE.
 
 Ops are ordered bottom-to-top within each file so line numbers stay stable.
 """
@@ -32,6 +38,16 @@ _SKIP_OVERWRITE = """\
         pass  # MLS-Bench: skip overwrite prompt (concurrent seeds)
 """
 
+# ── lang_utils.py: thread cache_dir into AutoTokenizer ───────────────
+# Replace line 10 so the tokenizer load also looks under HF_HOME/clip.
+_LANG_TOKENIZER_CACHE = """\
+tz = AutoTokenizer.from_pretrained(
+    tokenizer,
+    TOKENIZERS_PARALLELISM=True,
+    cache_dir=os.path.expanduser(os.path.join(os.environ.get("HF_HOME", "~/tmp"), "clip")),
+)
+"""
+
 OPS = [
     # 0. Skip overwrite block in train_utils.py (replace lines 66-73)
     {
@@ -54,5 +70,13 @@ OPS = [
         "file": "robomimic/robomimic/scripts/train.py",
         "after_line": 325,
         "content": _TRAIN_METRICS,
+    },
+    # 3. AutoTokenizer cache_dir alignment in lang_utils.py
+    {
+        "op": "replace",
+        "file": "robomimic/robomimic/utils/lang_utils.py",
+        "start_line": 10,
+        "end_line": 10,
+        "content": _LANG_TOKENIZER_CACHE,
     },
 ]

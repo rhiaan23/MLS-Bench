@@ -16,11 +16,9 @@
   "env": {
     "MUJOCO_GL": "osmesa",
     "PYTHONPATH": "/workspace/robomimic:${PYTHONPATH}",
-    "DATASET_ROOT": "/data/datasets"
+    "DATASET_ROOT": "/data/datasets",
+    "HF_HOME": "/data/huggingface"
   },
-  "host_data_prepare_requirements": [
-    "huggingface_hub"
-  ],
   "data_deps": [
     {
       "name": "transport-ph",
@@ -49,8 +47,17 @@
       "host_path": "{project_root}/vendor/data/robomimic/square",
       "container_path": "/data/datasets/square",
       "prepare": "vendor/pkg_configs/robomimic/download_square.py"
+    },
+    {
+      "name": "clip-vit-large-patch14",
+      "description": "openai/clip-vit-large-patch14 HF snapshot — imported unconditionally by robomimic.utils.lang_utils at module load.",
+      "host_path": "{data_root}/robomimic/hf_cache_clip",
+      "container_path": "/data/huggingface/clip",
+      "prepare": "vendor/data_scripts/robomimic/prepare_clip.py",
+      "ready_files": ["{data_root}/robomimic/hf_cache_clip/.ready"]
     }
   ],
+  "host_data_prepare_requirements": ["huggingface_hub"],
   "use_cuda": true,
   "workdir": "/workspace"
 }
