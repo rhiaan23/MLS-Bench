@@ -45,6 +45,7 @@
   "diffusers-main/.gitignore": "3ee5ba06245c3dafe11d6119bdf3d1ef009f98d35c73e137de1630f1d58bc6ed",
   "diffusers-main/CITATION.cff": "d7e53667e1c46fab685b7e9fe40983b69426896216e374c6fb57a85df9191a1e",
   "diffusers-main/CODE_OF_CONDUCT.md": "286fa5a0c0ed4d7aacfa164f94f6bba47f880525d1ff1f82310b56a2ba759ae4",
+  "diffusers-main/CONTRIBUTING.md": "f929ca377b3d58ae6ff6d0cde395f8cde341bd6979e03996476f2995280d6103",
   "diffusers-main/LICENSE": "f9e2070c247517b1ddf65f7b11b393484a18da91a958fd18a97bd0f241c3125c",
   "diffusers-main/MANIFEST.in": "a523bb9cb241810db73d93c904e1dbfe69fb218a40a588098e0ef96c04efc28c",
   "diffusers-main/Makefile": "8ac58285527996dc27f1594a983e7036880838c15e33bc7aca54df6839b303b8",
