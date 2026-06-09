@@ -1426,6 +1426,20 @@ def _stage_verifier_assets(
     if scripts_src.exists():
         shutil.copytree(scripts_src, tests_dir / "eval" / "scripts", dirs_exist_ok=True)
 
+    # Task-bundled eval data (e.g. llm-dllm-demask-strategy ships math_test.json /
+    # c4_texts.json / HumanEval.jsonl.gz / klass_utils.py under tasks/<t>/data/).
+    # Native MLSBench bind-mounts the task dir at /workspace/_task so eval scripts
+    # read it as /workspace/_task/data/...; Harbor has no bind mounts, so stage it
+    # into tests/meta/data/ where score_task.py exposes it via the /workspace/_task
+    # symlink at eval time (issue #25.4).
+    data_src = task_dir / "data"
+    if data_src.exists():
+        shutil.copytree(
+            data_src, meta / "data",
+            dirs_exist_ok=True,
+            ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
+        )
+
     # Task-bundled third-party resources (e.g. dlm-dkv-policy ships pristine
     # snapshots of upstream dLLM-cache / D2Cache / Elastic-Cache LLaDA model
     # code under tasks/<t>/third_party/). These are loaded at verify time
@@ -1511,6 +1525,17 @@ def _stage_pristine_assets(
             if not _stat.S_ISREG(st.st_mode):
                 continue
             rel = fp.relative_to(scaffold_dir).as_posix()
+            # Keep in sync with the package-source walk + the verifier's
+            # _SKIP_SUFFIXES: a scaffold-only .so/.o/.egg-info entry would
+            # otherwise be emitted into the manifest while the verifier's
+            # _walk_workspace skips it, yielding a spurious deleted-file
+            # violation (issue #25.2 Error-2, Codex P2 on #29).
+            rel_parts = rel.split("/")
+            if any(part in (".git", "__pycache__") for part in rel_parts):
+                continue
+            if any(part.endswith(suf) for part in rel_parts
+                   for suf in (".pyc", ".pyo", ".so", ".o", ".egg-info")):
+                continue
             scaffold_index[rel] = fp
 
     declared_files = {
@@ -1569,9 +1594,15 @@ def _stage_pristine_assets(
             except ValueError:
                 continue
             # Skip metadata noise that's never part of agent-visible workspace.
-            if any(part in (".git", "__pycache__") for part in fp.relative_to(pkg_src).parts):
+            # MUST stay in sync with score_task.py::_SKIP_SUFFIXES — the verifier's
+            # _walk_workspace skips .pyc/.pyo/.so/.o/.egg-info, so any such entry
+            # left in the manifest is never walked and the guard reports it as a
+            # spurious 'deleted file' (issue #25.2 Error-2).
+            rel_parts = fp.relative_to(pkg_src).parts
+            if any(part in (".git", "__pycache__") for part in rel_parts):
                 continue
-            if fp.suffix in (".pyc", ".pyo"):
+            if any(part.endswith(suf) for part in rel_parts
+                   for suf in (".pyc", ".pyo", ".so", ".o", ".egg-info")):
                 continue
             sub = fp.relative_to(pkg_src).as_posix()
             rel = f"{pkg}/{sub}" if sub else pkg
