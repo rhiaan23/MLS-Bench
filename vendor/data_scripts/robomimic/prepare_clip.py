@@ -45,6 +45,20 @@ def _snapshot_dir(cache_dir: Path) -> Path | None:
     return None
 
 
+def _is_complete(cache_dir: Path) -> bool:
+    """True only when the snapshot has the required config/tokenizer files AND
+    model weights — i.e. a finished download, not a half-populated HF cache that
+    ``snapshot_download`` created before fetching the blobs."""
+    snap = _snapshot_dir(cache_dir)
+    if snap is None or not all((snap / f).exists() for f in _REQUIRED_FILES):
+        return False
+    return (
+        (snap / "pytorch_model.bin").exists()
+        or any(snap.glob("model*.safetensors"))
+        or any(snap.glob("pytorch_model*.bin"))
+    )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--data-root", type=str, required=True)
@@ -52,15 +66,15 @@ def main() -> int:
 
     cache_dir = Path(args.data_root) / "robomimic" / "hf_cache_clip"
     cache_dir.mkdir(parents=True, exist_ok=True)
+    ready_marker = cache_dir / ".ready"
 
-    existing = _snapshot_dir(cache_dir)
-    if existing is not None and all((existing / f).exists() for f in _REQUIRED_FILES):
-        has_weights = (existing / "pytorch_model.bin").exists() or any(
-            existing.glob("model*.safetensors")
-        ) or any(existing.glob("pytorch_model*.bin"))
-        if has_weights:
-            print(f"CLIP already cached at {existing}, skipping")
-            return 0
+    if _is_complete(cache_dir):
+        # Backfill the readiness marker for caches populated before this script
+        # wrote one (e.g. the snapshot baked into older images).
+        if not ready_marker.exists():
+            ready_marker.write_text(REPO_ID + "\n", encoding="utf-8")
+        print(f"CLIP already cached at {_snapshot_dir(cache_dir)}, skipping")
+        return 0
 
     try:
         from huggingface_hub import snapshot_download
@@ -98,11 +112,18 @@ def main() -> int:
         print(f"CLIP snapshot_download failed: {e}", file=sys.stderr)
         return 1
 
-    final = _snapshot_dir(cache_dir)
-    if final is None:
-        print("CLIP snapshot_download finished but no snapshots/ dir present", file=sys.stderr)
+    if not _is_complete(cache_dir):
+        print(
+            "CLIP snapshot_download finished but the cache is incomplete "
+            "(missing required files or weights); not marking ready",
+            file=sys.stderr,
+        )
         return 1
-    print(f"CLIP cached at {final}")
+    # Only now is the cache guaranteed complete — write a non-empty readiness
+    # marker so _data_dep_exists (ready_files) treats a partial/interrupted
+    # download as MISSING and retries instead of mounting a half-baked snapshot.
+    ready_marker.write_text(REPO_ID + "\n", encoding="utf-8")
+    print(f"CLIP cached at {_snapshot_dir(cache_dir)}")
     return 0
 
 
