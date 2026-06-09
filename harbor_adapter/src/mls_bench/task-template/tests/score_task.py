@@ -228,7 +228,23 @@ def _is_workspace_guard_exempt(rel: Path) -> bool:
     return bool(rel.parts and rel.parts[0] in _EXEMPT_TOP_LEVEL_DIRS)
 
 
-def _walk_workspace(workspace_root: Path) -> set[Path]:
+def _is_path_excluded(rel: Path, excludes: tuple) -> bool:
+    """True if *rel* (workdir-relative) is under a config ``guard_exclude`` prefix.
+
+    Lets a task drop image-baked data dirs (datasets / weights / caches that the
+    package install bakes INSIDE the package dir, e.g. ``dbim-codebase/assets``)
+    out of the guard: they are not the agent's editable source surface, the
+    render-time manifest never captured them, and walking them would otherwise
+    flag every baked file as a spurious ``created``/``modified`` violation
+    (issue #25.2 Error-1/Error-3). POSIX path-prefix match.
+    """
+    if not excludes:
+        return False
+    rp = rel.as_posix()
+    return any(rp == e or rp.startswith(e + "/") for e in excludes)
+
+
+def _walk_workspace(workspace_root: Path, excludes: tuple = ()) -> set[Path]:
     out: set[Path] = set()
     if not workspace_root.exists():
         return out
@@ -241,6 +257,8 @@ def _walk_workspace(workspace_root: Path) -> set[Path]:
             continue
         rel = p.relative_to(workspace_root)
         if _is_workspace_guard_exempt(rel):
+            continue
+        if _is_path_excluded(rel, excludes):
             continue
         out.add(rel)
     return out
@@ -285,8 +303,13 @@ def cmd_guard(args: argparse.Namespace) -> int:
 
     editable = _editable_files(config)
     allow_create = bool(config.get("allow_create", False))
+    # Optional per-task allowlist of workdir-relative prefixes dropped from the
+    # guard — for image-baked data/build dirs inside the package dir that aren't
+    # the agent's editable surface and were never in the render-time manifest
+    # (issue #25.2 Error-1/Error-3).
+    guard_exclude = tuple(config.get("guard_exclude", []) or [])
 
-    workspace_files = _walk_workspace(workspace_root)
+    workspace_files = _walk_workspace(workspace_root, guard_exclude)
     workspace_rel_strs = {p.as_posix() for p in workspace_files}
 
     # Guarded prefixes: every top-level dir referenced by editable list AND
@@ -308,6 +331,8 @@ def cmd_guard(args: argparse.Namespace) -> int:
     for rel_str in sorted(manifest):
         rel = Path(rel_str)
         if not rel.parts or rel.parts[0] not in guarded_prefixes:
+            continue
+        if _is_path_excluded(rel, guard_exclude):
             continue
         if rel_str in workspace_rel_strs:
             continue
