@@ -69,5 +69,9 @@
         }
       ]
     }
+  ],
+  "guard_exclude": [
+    "learn2learn/build",
+    "l2l_data"
   ]
 }

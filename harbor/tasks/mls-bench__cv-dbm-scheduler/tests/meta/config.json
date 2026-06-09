@@ -63,5 +63,8 @@
   ],
   "seeds": [
     42
+  ],
+  "guard_exclude": [
+    "dbim-codebase/assets"
   ]
 }

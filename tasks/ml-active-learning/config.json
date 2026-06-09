@@ -1,7 +1,9 @@
 {
   "allow_create": false,
   "rigorous_codebase": true,
-  "seeds": [42],
+  "seeds": [
+    42
+  ],
   "test_cmds": [
     {
       "cmd": "scripts/letter.sh",
@@ -31,21 +33,49 @@
     }
   ],
   "baselines": {
-    "badge": {"edit_ops": "edits/badge.edit.py"},
-    "bait":  {"edit_ops": "edits/bait.edit.py"},
-    "bald":  {"edit_ops": "edits/bald.edit.py"},
-    "least_confidence": {"edit_ops": "edits/least_confidence.edit.py"},
-    "random": {"edit_ops": "edits/random.edit.py"}
+    "badge": {
+      "edit_ops": "edits/badge.edit.py"
+    },
+    "bait": {
+      "edit_ops": "edits/bait.edit.py"
+    },
+    "bald": {
+      "edit_ops": "edits/bald.edit.py"
+    },
+    "least_confidence": {
+      "edit_ops": "edits/least_confidence.edit.py"
+    },
+    "random": {
+      "edit_ops": "edits/random.edit.py"
+    }
   },
   "files": [
     {
       "filename": "badge/query_strategies/custom_sampling.py",
-      "read": [{"start": -1, "end": -1}],
-      "edit": [{"start": 28, "end": 54}]
+      "read": [
+        {
+          "start": -1,
+          "end": -1
+        }
+      ],
+      "edit": [
+        {
+          "start": 28,
+          "end": 54
+        }
+      ]
     },
     {
       "filename": "badge/query_strategies/strategy.py",
-      "read": [{"start": -1, "end": -1}]
+      "read": [
+        {
+          "start": -1,
+          "end": -1
+        }
+      ]
     }
+  ],
+  "guard_exclude": [
+    "badge/oml"
   ]
 }

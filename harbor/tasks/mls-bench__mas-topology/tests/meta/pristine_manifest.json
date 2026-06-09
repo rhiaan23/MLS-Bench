@@ -4020,7 +4020,7 @@
   "chatdev-macnet/camel/typing.py": "e7affd392d84eb33a4af5df77165375273051aaee5fc72ea71abbdc794cc0d4a",
   "chatdev-macnet/camel/utils.py": "ccec12ad068362662c32198853dd46b1b72b3a1a0ef4c631b68a80188f2d1a73",
   "chatdev-macnet/chatdev/chat_chain.py": "7d6633bec5fc8bcd8a11f91285f97503b7b6b34d48676fb8a6fa9f440aef4bcf",
-  "chatdev-macnet/chatdev/chat_env.py": "7923dd03e016a718054b5b9574fb2b0e4ee5f907822bad9a5bb476ab07087089",
+  "chatdev-macnet/chatdev/chat_env.py": "5e1827186c1cd1ed1e965bdb1f93bea4bd1daf3853f28ae94ef2527e36765a4d",
   "chatdev-macnet/chatdev/codes.py": "3e203a1949558bdeaac67779cca488e7d987c2c5c9d07124909f4c53ebe377a7",
   "chatdev-macnet/chatdev/company_hr.py": "ee14d69afe521b6464691620060b030b88d29ee4e9bf37d8c5a9b531fcd47a7b",
   "chatdev-macnet/chatdev/competition.py": "f8080ee807bbad33efde8966b736eebbdbe73291deb42feddd05499d9d294d92",
@@ -4047,9 +4047,5 @@
   "chatdev-macnet/misc/topo_example2.png": "eb47f5ef58f9893792b525c38c2a6672b35824f045403582a5f323fdf938dbe0",
   "chatdev-macnet/misc/topo_order.png": "9677b69bdf5d89c8034cef7e517e691b132db0e271a9c72aba020958c6daa534",
   "chatdev-macnet/requirements.txt": "a978b5a462296f893c9ac17a15519383af9968e01ebf7ab2f99825c1d9522743",
-  "chatdev-macnet/run.py": "59d9c24ea804cba93fc09cd0f33507ef12416ed118386b3b0493c5295efb0551",
-  "chatdev-macnet/run_humaneval.py": "092b0946cc224dee3a79ddd2df566a13f6fc9150bf78acf36974d34958e15b6d",
-  "chatdev-macnet/run_srdd.py": "692033e6a6980374ad0bb40b251085f15fdbbf4fd9d6a47b6edb0917db6e3e8e",
-  "chatdev-macnet/run_with_topology.py": "805356f63fbe6f63a3718767ad96665506e0e2cb1699adb99ca1ebaf76fc862c",
-  "chatdev-macnet/srdd_queries.json": "333bc9f94935eb6f30104f86c75092dbf13756631178d48a40b75f04b036e42a"
+  "chatdev-macnet/run.py": "59d9c24ea804cba93fc09cd0f33507ef12416ed118386b3b0493c5295efb0551"
 }
