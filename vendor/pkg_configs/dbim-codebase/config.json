@@ -2,7 +2,7 @@
   "base_image": "pytorch/pytorch:2.4.1-cuda12.4-cudnn9-runtime",
   "host_data_prepare_requirements": [
     "huggingface_hub>=0.20",
-    "opencv-python",
+    "opencv-python-headless",
     "matplotlib",
     "numpy",
     "torch",
