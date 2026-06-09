@@ -3,8 +3,16 @@
   "install_cmds": [
     "pip install torch --index-url https://download.pytorch.org/whl/cpu",
     "pip install openai httpx tenacity termcolor fastapi uvicorn requests tqdm pyyaml pyarrow slowapi 'huggingface_hub[cli]' psutil transformers accelerate sentencepiece",
-    "cd server && pip install -r requirements.txt && cd ..",
-    "mkdir -p {data_root}/stabletoolbench/server_data && if [ ! -d {data_root}/stabletoolbench/server_data/tools ]; then cd server && python -c \"from huggingface_hub import snapshot_download; snapshot_download('stabletoolbench/Cache', repo_type='dataset', local_dir='cache_download')\" && python -c \"import zipfile; zipfile.ZipFile('cache_download/server_cache.zip').extractall('{data_root}/stabletoolbench/server_data')\" && cd ..; fi"
+    "cd server && pip install -r requirements.txt && cd .."
+  ],
+  "data_deps": [
+    {
+      "name": "stabletoolbench-server-data",
+      "host_path": "{data_root}/stabletoolbench/server_data",
+      "container_path": "/data/stabletoolbench/server_data",
+      "prepare": "vendor/data_scripts/stabletoolbench/prepare_data.py",
+      "description": "StableToolBench server_data cache (tools/ + answer/) extracted from the HF dataset stabletoolbench/Cache; bound into the container at /data/stabletoolbench/server_data (TOOL_SERVER_DATA_DIR). Prepared on the host because install_cmds run inside the build container, where {data_root} is not expanded and not host-writable."
+    }
   ],
   "data_bind": "{data_root}/stabletoolbench/server_data:/data/stabletoolbench/server_data",
   "env": {
