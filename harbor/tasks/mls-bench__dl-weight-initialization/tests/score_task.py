@@ -793,6 +793,23 @@ def _remove_budget_legacy_links(links: list[Path]) -> None:
             pass
 
 
+def _build_eval_task_dir(task_meta: Path) -> Path:
+    """Throwaway dir exposing ONLY the eval-time resources (scripts/ data/
+    third_party/) that some eval wrappers reach via /workspace/_task or
+    $MLSBENCH_TASK_DIR. It deliberately EXCLUDES the scoring metadata
+    (parser.py / score_spec.py / config.json / leaderboard.csv) that cmd_score
+    imports: eval runs agent-authored package code as root, so any path it can
+    reach is writable (chmod a-w doesn't stop root), and exposing the real
+    task_meta would let a submission overwrite the parser/spec before the score
+    phase. The real task_meta stays at its unexposed random /tmp path."""
+    d = Path(tempfile.mkdtemp(prefix="mlsbench-evaltask-"))
+    for sub in ("scripts", "data", "third_party"):
+        src = task_meta / sub
+        if src.exists():
+            shutil.copytree(src, d / sub, dirs_exist_ok=True)
+    return d
+
+
 def _run_budget_check(
     *,
     task_meta: Path,
@@ -1185,15 +1202,17 @@ def cmd_run_evals(args: argparse.Namespace) -> int:
             if not runnable_tasks:
                 continue
 
-            # Expose tests/meta at the legacy /workspace/_task path that some
-            # eval wrappers reference (humanoid: `python _task/scripts/...`;
-            # dllm: `--data-path /workspace/_task/data/...`). Native MLSBench
-            # bind-mounts the task dir there, but Harbor has no bind mounts, so
-            # symlink the (read-only) task_meta — which ships scripts/ and, after
-            # the adapter fix, data/ — for the duration of the eval wave. The
-            # guard exempts the _task top-level dir and runs as a separate
-            # pre-eval invocation, so this never affects the edit-range diff.
-            eval_task_links = _install_budget_legacy_links(task_meta, workspace_root)
+            # Expose the legacy /workspace/_task path that some eval wrappers
+            # reference (humanoid: `python _task/scripts/...`; dllm:
+            # `--data-path /workspace/_task/data/...`). Native MLSBench bind-mounts
+            # the task dir there, but Harbor has no bind mounts. We point _task at
+            # a MINIMAL throwaway copy (scripts/data/third_party only) rather than
+            # task_meta, so eval-time agent code (running as root) cannot reach and
+            # overwrite the scoring metadata (parser.py/score_spec.py/config.json)
+            # before the score phase. The guard exempts the _task top-level dir and
+            # runs as a separate pre-eval invocation, so this never affects the diff.
+            eval_task_dir = _build_eval_task_dir(task_meta)
+            eval_task_links = _install_budget_legacy_links(eval_task_dir, workspace_root)
             try:
                 wave_results = _run_eval_wave(
                     tasks=runnable_tasks,
@@ -1205,6 +1224,7 @@ def cmd_run_evals(args: argparse.Namespace) -> int:
                 )
             finally:
                 _remove_budget_legacy_links(eval_task_links)
+                shutil.rmtree(eval_task_dir, ignore_errors=True)
             records.update(wave_results)
             for task in runnable_tasks:
                 entry = task["entry"]
