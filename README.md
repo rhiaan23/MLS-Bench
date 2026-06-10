@@ -2,6 +2,10 @@
 
 <h1 align="center">MLS-Bench</h1>
 
+<p align="center">
+  <img src="assets/mls-bench-paper-overlap-title.png" alt="MLS-Bench" width="900">
+</p>
+
 [![Website](https://img.shields.io/badge/Website-mls--bench.com-10A37F)](https://mls-bench.com)
 [![arXiv](https://img.shields.io/badge/arXiv-2605.08678-b31b1b)](https://arxiv.org/abs/2605.08678)
 [![Hugging Face Dataset](https://img.shields.io/badge/Hugging%20Face-Dataset%20%26%20SIFs-FFD21E)](https://huggingface.co/datasets/Bohan22/MLS-Bench-Tasks)
