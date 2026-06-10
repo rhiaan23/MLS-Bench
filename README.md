@@ -1,6 +1,6 @@
 <div align="center">
 
-<h1 align="center">MLS-Bench</h1>
+<!-- <h1 align="center">MLS-Bench</h1> -->
 
 <p align="center">
   <img src="assets/mls-bench-paper-overlap-title.png" alt="MLS-Bench" width="900">
