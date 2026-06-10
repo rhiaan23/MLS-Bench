@@ -466,7 +466,11 @@ class DataParallelPPOActor(BasePPOActor):
 
         if use_dynamic_bsz:
             max_token_len = data.meta_info["max_token_len"] * self.ulysses_sequence_parallel_size
-            micro_batches, batch_idx_list = prepare_dynamic_batch(data, max_token_len=max_token_len)
+            # verl #2490: pass DP group (=WORLD; ulysses SP=1) so dynamic_bsz
+            # all_reduce(MAX)-pads every rank to the same micro-batch count and
+            # FSDP param all-gathers stay in lockstep (no NCCL deadlock).
+            _dp_group = torch.distributed.group.WORLD if torch.distributed.is_initialized() else None
+            micro_batches, batch_idx_list = prepare_dynamic_batch(data, max_token_len=max_token_len, dp_group=_dp_group)
         else:
             micro_batches = data.split(micro_batch_size)
 
@@ -558,7 +562,11 @@ class DataParallelPPOActor(BasePPOActor):
             for batch_idx, mini_batch in enumerate(mini_batches):
                 if self.config.use_dynamic_bsz:
                     max_token_len = self.config.ppo_max_token_len_per_gpu * self.ulysses_sequence_parallel_size
-                    micro_batches, _ = prepare_dynamic_batch(mini_batch, max_token_len=max_token_len)
+                    # verl #2490: pass DP group (=WORLD; ulysses SP=1) so dynamic_bsz
+                    # all_reduce(MAX)-pads every rank to the same micro-batch count and
+                    # FSDP param all-gathers stay in lockstep (no NCCL deadlock).
+                    _dp_group = torch.distributed.group.WORLD if torch.distributed.is_initialized() else None
+                    micro_batches, _ = prepare_dynamic_batch(mini_batch, max_token_len=max_token_len, dp_group=_dp_group)
                 else:
                     self.gradient_accumulation = (
                         self.config.ppo_mini_batch_size // self.config.ppo_micro_batch_size_per_gpu
