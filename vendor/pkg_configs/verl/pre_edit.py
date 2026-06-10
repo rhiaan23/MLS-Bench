@@ -199,4 +199,50 @@ OPS = [
             "                            pass  # silently skip conflicting non-list meta_info\n"
         ),
     },
+    # ── verl #2490: dynamic_bsz NCCL deadlock fix (dp_actor.py) ─────────
+    # With use_dynamic_bsz=True, each DP rank packs micro-batches by *token*
+    # count, so ranks can pack a different *number* of micro-batches. Under
+    # FSDP every micro-batch forward issues a param all-gather across the
+    # sharding group (= WORLD, ulysses SP=1), so a rank with one extra
+    # micro-batch issues one extra all-gather with no partner → the NCCL
+    # collective stream desyncs → 3600 s watchdog → ActorDiedError at ~step 23.
+    # verl already ships the cure: rearrange_micro_batches(same_micro_num_in_dp=True)
+    # does all_reduce(num_micro_batches, MAX, group=dp_group) to pad every rank
+    # to the same count — but only when a dp_group is passed. The pinned commit
+    # (32705dc…) leaves both dp_actor call sites passing no dp_group, so the
+    # padding path is dormant. Thread WORLD through both call sites. Padding only
+    # equalizes the *number* of forward passes (the same sequences are processed),
+    # so this changes no training math and is comparability-safe.
+    #
+    # Ordered bottom-to-top (line 560 before 468) so the first replace's +line
+    # shift does not move the second anchor.
+    #
+    # update_policy (~L558-560): actor update micro-batch packing.
+    {
+        "op": "replace",
+        "file": "verl/verl/workers/actor/dp_actor.py",
+        "start_line": 560,
+        "end_line": 560,
+        "content": (
+            "                    # verl #2490: pass DP group (=WORLD; ulysses SP=1) so dynamic_bsz\n"
+            "                    # all_reduce(MAX)-pads every rank to the same micro-batch count and\n"
+            "                    # FSDP param all-gathers stay in lockstep (no NCCL deadlock).\n"
+            "                    _dp_group = torch.distributed.group.WORLD if torch.distributed.is_initialized() else None\n"
+            "                    micro_batches, _ = prepare_dynamic_batch(mini_batch, max_token_len=max_token_len, dp_group=_dp_group)\n"
+        ),
+    },
+    # compute_log_prob (~L466-468): old/ref/rollout log-prob recompute micro-batch packing.
+    {
+        "op": "replace",
+        "file": "verl/verl/workers/actor/dp_actor.py",
+        "start_line": 468,
+        "end_line": 468,
+        "content": (
+            "            # verl #2490: pass DP group (=WORLD; ulysses SP=1) so dynamic_bsz\n"
+            "            # all_reduce(MAX)-pads every rank to the same micro-batch count and\n"
+            "            # FSDP param all-gathers stay in lockstep (no NCCL deadlock).\n"
+            "            _dp_group = torch.distributed.group.WORLD if torch.distributed.is_initialized() else None\n"
+            "            micro_batches, batch_idx_list = prepare_dynamic_batch(data, max_token_len=max_token_len, dp_group=_dp_group)\n"
+        ),
+    },
 ]
