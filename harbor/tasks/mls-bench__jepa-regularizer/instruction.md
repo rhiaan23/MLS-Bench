@@ -30,8 +30,12 @@ You are working inside `/workspace`. The package source tree
 ## Files You May Edit
 
 You may **only** modify these files, and **only within the listed line ranges
-(inclusive, 1-indexed)**. Edits outside these ranges — or creating new files,
-or deleting existing ones — will cause your submission to be invalid.
+(inclusive, 1-indexed)**. Edits that change code outside these ranges — or creating new files, or
+deleting whole files — will cause your submission to be invalid.
+
+The line numbers mark an editable **region**, not a fixed line-count budget: you
+may add or remove lines inside it. Only code outside the editable ranges must
+stay unchanged.
 
 - `eb_jepa/custom_regularizer.py`
 - editable lines **33–58**
