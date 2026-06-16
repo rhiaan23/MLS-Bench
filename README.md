@@ -265,7 +265,7 @@ Fetched upstream repositories, built images, downloaded datasets, run workspaces
 
 ## MLS-Bench-Lite
 
-**MLS-Bench-Lite** is a curated **30-task subset** of the full 140-task suite, spanning **all 12 research domains** (at least one task per domain). It is meant as a substantially cheaper, faster-to-run slice for quickly comparing models and iterating, while keeping the cross-domain coverage that makes the full benchmark representative. Every Lite task is a regular MLS-Bench task — same scaffolds, baselines, and scoring — so Lite results are directly comparable to the corresponding entries in the full catalog below.
+**MLS-Bench-Lite** is a **30-task subset** of the full 140-task suite, spanning **all 12 research domains**. It is meant as a substantially cheaper, faster-to-run slice for quickly comparing models and iterating, while keeping the cross-domain coverage that makes the full benchmark representative.
 
 <details>
 <summary><strong>Show the 30 MLS-Bench-Lite tasks</strong></summary>
