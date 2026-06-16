@@ -32,23 +32,41 @@ MODELS = [
 IGNORE_PATTERNS = ["*.onnx", "*.onnx_data", "*openvino*", "*.msgpack"]
 
 
+_WEIGHT_SUFFIXES = (".safetensors", ".bin", ".ckpt", ".pt", ".msgpack", ".onnx")
+
+
 def _snapshot_ok(model_cache: Path) -> bool:
-    """A snapshot is ready only if it has no leftover .incomplete blobs AND
-    every file the latest snapshot references actually resolves. The old
-    "snapshots dir non-empty + no .incomplete" check passed for an
-    interrupted download whose weight symlinks dangle into never-finished
-    blobs — exactly the SDXL failure that shipped an image with only
-    unet/config.json and no weights."""
+    """Accept a cached model only if the snapshot that ``refs/main`` points at
+    is genuinely complete:
+      - no leftover ``.incomplete`` blobs,
+      - every symlink resolves (no dangling pointer into a never-finished blob),
+      - the snapshot actually contains weight files, not just config/tokenizer.
+    The old "snapshots non-empty + no .incomplete" check passed for two real
+    failure modes that both shipped an SDXL image with ``unet/config.json`` and
+    no weights: a download interrupted mid-blob (dangling symlinks) and one
+    interrupted before the large weight pointers were ever created (only small
+    config files present). We also resolve ``refs/main`` rather than picking the
+    lexicographically-last snapshot, so a stale complete snapshot can't mask a
+    broken current ref that ``from_pretrained`` would actually load."""
     snapshots = model_cache / "snapshots"
     if not (snapshots.exists() and any(snapshots.iterdir())):
         return False
     blobs = model_cache / "blobs"
     if blobs.exists() and list(blobs.glob("*.incomplete")):
         return False
-    snap = sorted(p for p in snapshots.iterdir() if p.is_dir())[-1]
-    for f in snap.rglob("*"):
+    ref = model_cache / "refs" / "main"
+    snap = snapshots / ref.read_text().strip() if ref.is_file() else None
+    if snap is None or not snap.is_dir():
+        dirs = sorted(p for p in snapshots.iterdir() if p.is_dir())
+        if not dirs:
+            return False
+        snap = dirs[-1]
+    files = list(snap.rglob("*"))
+    for f in files:
         if f.is_symlink() and not f.resolve().exists():
             return False
+    if not any(f.is_file() and f.suffix in _WEIGHT_SUFFIXES for f in files):
+        return False
     return True
 
 

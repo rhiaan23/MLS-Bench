@@ -515,7 +515,7 @@ def preprocess_and_cache(task_name, data_dir):
         val_data = convert_batch(dm.val_dataloader().dataset, 'val')
 
     if hasattr(dm, 'test_dataset'):
-        test_data = convert_batch(dm.test_dataset(), 'test')
+        test_data = convert_batch(dm.test_dataset('test_0.95') if task_name == 'go_bp' else dm.test_dataset(), 'test')  # GO test_dataset needs a cutoff split (test_0.95); EC/Fold take none
     else:
         test_dl = dm.test_dataloader()
         if isinstance(test_dl, list):
