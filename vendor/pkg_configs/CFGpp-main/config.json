@@ -22,8 +22,8 @@
     "TRANSFORMERS_OFFLINE": "1",
     "CONDA_DEFAULT_ENV": "cfgpp",
     "PATH": "/opt/conda/envs/cfgpp/bin:/opt/conda/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
-    "TMPDIR": "/data/huggingface/pip_tmp",
-    "PIP_CACHE_DIR": "/data/huggingface/pip_cache"
+    "TMPDIR": "/tmp",
+    "PIP_CACHE_DIR": "/tmp/pip_cache"
   },
 
   "local_env": {
@@ -47,7 +47,6 @@
     "pytorch-fid==0.3.0"
   ],
   "data_bind": [
-    "{data_root}/huggingface_cache:/data/huggingface",
     "{data_root}/coco_val2014:/data/coco_val2014",
     "{data_root}/cfgpp_model_weights:/opt/model_weights"
   ],
@@ -65,28 +64,32 @@
       "description": "Stable Diffusion v1.5 model weights",
       "host_path": "{data_root}/huggingface_cache/hub/models--runwayml--stable-diffusion-v1-5",
       "container_path": "/data/huggingface/hub/models--runwayml--stable-diffusion-v1-5",
-      "prepare": "vendor/data_scripts/CFGpp-main/prepare_models.py"
+      "prepare": "vendor/data_scripts/CFGpp-main/prepare_models.py",
+      "ready_files": ["{data_root}/huggingface_cache/hub/models--runwayml--stable-diffusion-v1-5/snapshots/451f4fe16113bff5a5d2269ed5ad43b0592e9a14/unet/diffusion_pytorch_model.fp16.safetensors"]
     },
     {
       "name": "stable-diffusion-2-base",
       "description": "Stable Diffusion v2.0 base model weights",
       "host_path": "{data_root}/huggingface_cache/hub/models--Manojb--stable-diffusion-2-base",
       "container_path": "/data/huggingface/hub/models--Manojb--stable-diffusion-2-base",
-      "prepare": "vendor/data_scripts/CFGpp-main/prepare_models.py"
+      "prepare": "vendor/data_scripts/CFGpp-main/prepare_models.py",
+      "ready_files": ["{data_root}/huggingface_cache/hub/models--Manojb--stable-diffusion-2-base/snapshots/64bf7b4f10eee35494b38d55c06c0c78cf8b44d0/unet/diffusion_pytorch_model.fp16.safetensors"]
     },
     {
       "name": "sdxl-vae-fp16-fix",
       "description": "SDXL VAE fp16-fix weights",
       "host_path": "{data_root}/huggingface_cache/hub/models--madebyollin--sdxl-vae-fp16-fix",
       "container_path": "/data/huggingface/hub/models--madebyollin--sdxl-vae-fp16-fix",
-      "prepare": "vendor/data_scripts/CFGpp-main/prepare_models.py"
+      "prepare": "vendor/data_scripts/CFGpp-main/prepare_models.py",
+      "ready_files": ["{data_root}/huggingface_cache/hub/models--madebyollin--sdxl-vae-fp16-fix/snapshots/207b116dae70ace3637169f1ddd2434b91b3a8cd/diffusion_pytorch_model.safetensors"]
     },
     {
       "name": "sdxl-base-1.0",
       "description": "Stable Diffusion XL base model + VAE fix weights",
       "host_path": "{data_root}/huggingface_cache/hub/models--stabilityai--stable-diffusion-xl-base-1.0",
       "container_path": "/data/huggingface/hub/models--stabilityai--stable-diffusion-xl-base-1.0",
-      "prepare": "vendor/data_scripts/CFGpp-main/prepare_models.py"
+      "prepare": "vendor/data_scripts/CFGpp-main/prepare_models.py",
+      "ready_files": ["{data_root}/huggingface_cache/hub/models--stabilityai--stable-diffusion-xl-base-1.0/snapshots/462165984030d82259a11f4367a4eed129e94a7b/unet/diffusion_pytorch_model.fp16.safetensors"]
     },
     {
       "name": "coco-val2014",

@@ -49,7 +49,7 @@ stay unchanged.
 
 - `ProteinWorkshop/custom_protein_encoder.py`
 - editable lines **125–252**
-- editable lines **706–708**
+- editable lines **722–724**
 
 
 
@@ -57,7 +57,7 @@ stay unchanged.
 ## Readable Context
 
 
-### `ProteinWorkshop/custom_protein_encoder.py`  [EDITABLE — lines 125–252, lines 706–708 only]
+### `ProteinWorkshop/custom_protein_encoder.py`  [EDITABLE — lines 125–252, lines 722–724 only]
 
 ```python
      1: """
