@@ -22,8 +22,8 @@
     "TRANSFORMERS_OFFLINE": "1",
     "CONDA_DEFAULT_ENV": "cfgpp",
     "PATH": "/opt/conda/envs/cfgpp/bin:/opt/conda/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
-    "TMPDIR": "/data/huggingface/pip_tmp",
-    "PIP_CACHE_DIR": "/data/huggingface/pip_cache"
+    "TMPDIR": "/tmp",
+    "PIP_CACHE_DIR": "/tmp/pip_cache"
   },
 
   "local_env": {
@@ -47,7 +47,6 @@
     "pytorch-fid==0.3.0"
   ],
   "data_bind": [
-    "{data_root}/huggingface_cache:/data/huggingface",
     "{data_root}/coco_val2014:/data/coco_val2014",
     "{data_root}/cfgpp_model_weights:/opt/model_weights"
   ],
