@@ -263,6 +263,48 @@ harbor/                        Pre-rendered Harbor dataset (140 tasks) + run con
 
 Fetched upstream repositories, built images, downloaded datasets, run workspaces, logs, and scheduler state are intentionally not versioned.
 
+## MLS-Bench-Lite
+
+**MLS-Bench-Lite** is a curated **30-task subset** of the full 140-task suite, spanning **all 12 research domains** (at least one task per domain). It is meant as a substantially cheaper, faster-to-run slice for quickly comparing models and iterating, while keeping the cross-domain coverage that makes the full benchmark representative. Every Lite task is a regular MLS-Bench task — same scaffolds, baselines, and scoring — so Lite results are directly comparable to the corresponding entries in the full catalog below.
+
+<details>
+<summary><strong>Show the 30 MLS-Bench-Lite tasks</strong></summary>
+
+| Area | Task | Research question |
+| --- | --- | --- |
+| LM | [llm-dllm-demask-strategy](tasks/llm-dllm-demask-strategy) | Studies how demasking schedules, position selection, and token assignment affect diffusion language-model quality and decoding efficiency. |
+| LM | [llm-pretrain-optimizer](tasks/llm-pretrain-optimizer) | Studies how optimizer choice, parameter grouping, and schedule coupling affect autoregressive pretraining validation loss. |
+| LM | [llm-rl-importance-sampling](tasks/llm-rl-importance-sampling) | Studies how importance-sampling ratio granularity and clipping affect online language-model reinforcement learning for reasoning. |
+| Rob | [jepa-planning](tasks/jepa-planning) | Studies how goal-conditioned planning should exploit a fixed latent world model to improve navigation success. |
+| Rob | [robo-diffusion-guidance](tasks/robo-diffusion-guidance) | Studies guidance mechanisms for a fixed trajectory-level diffusion planner on D4RL MuJoCo, optimizing normalized score across hopper-medium-v2, walker2d-medium-v2, and halfcheetah-medium-v2. |
+| Rob | [robo-diffusion-policy](tasks/robo-diffusion-policy) | Studies how diffusion policy training, value guidance, and action generation affect robot-control episode reward. |
+| Rob | [robo-humanoid-sim2real-algo](tasks/robo-humanoid-sim2real-algo) | Studies how actor-critic architecture, policy optimization, and rollout processing affect humanoid command-following transfer. |
+| Rob | [robomimic-bc-loss](tasks/robomimic-bc-loss) | Studies how imitation-learning loss design affects rollout success for low-dimensional robot manipulation tasks. |
+| V&G | [cv-3dgs-densification](tasks/cv-3dgs-densification) | Designs a 3D Gaussian Splatting densification strategy controlling clone, split, prune, reset, relocation, and sample-add behavior to improve held-out novel-view quality on Mip-NeRF 360 scenes. |
+| V&G | [cv-dbm-sampler](tasks/cv-dbm-sampler) | Designs a low-NFE sampler for Diffusion Bridge Models on image-to-image translation, ImageNet center-inpainting, and DIODE depth, evaluated by FID at NFE=5. |
+| V&G | [cv-vae-loss](tasks/cv-vae-loss) | Studies how VAE loss components affect CIFAR-10 AutoencoderKL reconstruction quality, scored primarily by rFID on the full test set. |
+| RL | [rl-value-discrete](tasks/rl-value-discrete) | Changes value estimation, uncertainty handling, or replay-based update rules to improve episodic return on discrete-action control tasks. |
+| Sys | [llm-ptq-algorithm](tasks/llm-ptq-algorithm) | Design a post-training quantization algorithm for a pretrained LLM that minimizes WikiText-2 perplexity degradation under INT4/INT3 group quantization without retraining. |
+| Sys | [llm-qat-algorithm](tasks/llm-qat-algorithm) | Design a quantization-aware training algorithm for a pretrained LLM that minimizes WikiText-2 perplexity after INT4/INT3/INT2 quantization at inference time. |
+| Sys | [mlsys-sparse-attention-inference](tasks/mlsys-sparse-attention-inference) | Design an inference-time sparse attention module for a pretrained instruction-tuned causal LLM that preserves NIAH and LongBench quality under a 25% density budget without retraining. |
+| Sci | [ai4bio-mutation-effect-prediction](tasks/ai4bio-mutation-effect-prediction) | Studies how mutant and wild-type protein representations can predict functional effects of sequence mutations. |
+| Sci | [ai4sci-inverse-diffusion-algo](tasks/ai4sci-inverse-diffusion-algo) | Studies how diffusion priors and measurement guidance can be combined for inverse-problem reconstruction. |
+| Sci | [ai4sci-pla-binding-affinity](tasks/ai4sci-pla-binding-affinity) | Studies how intra- and inter-molecular geometric interactions should be represented to predict binding affinity. |
+| Opt | [optimization-multi-objective](tasks/optimization-multi-objective) | Design a custom multi-objective evolutionary strategy that improves convergence, diversity, and spread on standard benchmark problems. |
+| Opt | [optimization-variance-reduction](tasks/optimization-variance-reduction) | Design an improved variance reduction strategy for stochastic gradient descent on finite-sum optimization problems. |
+| CAL | [ml-clustering-algorithm](tasks/ml-clustering-algorithm) | Studies how clustering objectives and distance metrics handle convex blobs, non-convex moons, and high-dimensional digit data. |
+| CAL | [ml-dimensionality-reduction](tasks/ml-dimensionality-reduction) | Studies how nonlinear dimensionality reduction preserves neighborhood structure in low-dimensional embeddings. |
+| DL | [cv-pooling-aggregation](tasks/cv-pooling-aggregation) | Studies how global spatial features should be aggregated to improve image-classification accuracy across convolutional architectures. |
+| DL | [dl-activation-function](tasks/dl-activation-function) | Studies how drop-in activation functions affect accuracy across convolutional image classifiers. |
+| TS | [quant-concept-drift](tasks/quant-concept-drift) | The stock prediction model and data pipeline are redesigned to handle temporal distribution shift and improve signal quality and portfolio metrics. |
+| TS | [ts-exogenous-forecast](tasks/ts-exogenous-forecast) | Studies how exogenous variables improve target-channel forecasting. |
+| TS | [ts-imputation](tasks/ts-imputation) | Studies how imputation models reconstruct missing regions in multivariate time series. |
+| SCR | [causal-discovery-discrete](tasks/causal-discovery-discrete) | Studies how causal discovery algorithms recover equivalence-class graph structure from discrete observational data. |
+| SCR | [graph-generation](tasks/graph-generation) | Studies how graph generator architecture affects distributional match to target graph statistics. |
+| TL | [security-membership-inference-defense](tasks/security-membership-inference-defense) | Studies how privacy-preserving training losses reduce membership leakage while maintaining accuracy. |
+
+</details>
+
 ## Full Task Catalog
 
 <details>
