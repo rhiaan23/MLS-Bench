@@ -14,10 +14,10 @@ mls_bench_task_id = "ai4sci-climate-emulation"
 mls_bench_package = "ClimSim"
 
 [agent]
-timeout_sec = 9000
+timeout_sec = 60000
 
 [verifier]
-timeout_sec = 23760
+timeout_sec = 64800
 
 [environment]
 # Build the per-task image from environment/Dockerfile (which FROMs the

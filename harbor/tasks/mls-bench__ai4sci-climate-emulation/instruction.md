@@ -130,7 +130,7 @@ Other files you may **read** for context (do not modify):
     53:         self.inp_std = np.load(os.path.join(data_dir, 'inp_std.npy'))
     54:         self.out_mean = np.load(os.path.join(data_dir, 'out_mean.npy'))
     55:         self.out_std = np.load(os.path.join(data_dir, 'out_std.npy'))
-    56:         self.inputs = (self.inputs - self.inp_mean) / self.inp_std
+    56:         self.inputs = np.clip((self.inputs - self.inp_mean) / self.inp_std, -10.0, 10.0)
     57:         self.outputs = (self.outputs - self.out_mean) / self.out_std
     58: 
     59:         # Adjust dimensions if needed
@@ -264,154 +264,150 @@ Other files you may **read** for context (do not modify):
    187:     os.makedirs(output_dir, exist_ok=True)
    188: 
    189:     # ── Load Data ──
-   190:     # Train/val/test split:
-   191:     #   - train: months 0001-02..03 (used for SGD)
-   192:     #   - val:   first half of held-out month 0001-07 (early-stopping & model selection)
-   193:     #   - test:  second half of held-out month 0001-07 (final reported metrics)
-   194:     # The test half is NEVER touched during training — strict held-out evaluation.
-   195:     # If a true `test_inputs.npy` is present on disk we use it instead of splitting.
+   190:     # Train/val/test split (fixed infrastructure, prepared by prepare_data.py):
+   191:     #   ClimSim-style temporal holdout — train = simulation year 1, val/test =
+   192:     #   year 2 (interleaved). Both span a full annual cycle, so it is an
+   193:     #   in-distribution temporal generalization test, not cross-season extrapolation.
+   194:     #   - train = SGD; val = early-stopping & model selection (not final metrics)
+   195:     #   - test  = held-out, reported metrics (never touched during training)
    196:     print(f"Loading data from {data_dir}...")
    197:     train_dataset = ClimSimDataset(data_dir, split='train')
    198: 
-   199:     if os.path.exists(os.path.join(data_dir, 'test_inputs.npy')):
-   200:         val_dataset = ClimSimDataset(data_dir, split='val')
-   201:         test_dataset = ClimSimDataset(data_dir, split='test')
-   202:     else:
-   203:         held_out = ClimSimDataset(data_dir, split='val')
-   204:         n_held = len(held_out)
-   205:         if n_held < 2:
-   206:             raise RuntimeError(
-   207:                 f"Held-out split has only {n_held} samples; cannot derive a test set. "
-   208:                 "Re-run preprocessing to produce a non-empty val split."
-   209:             )
-   210:         # Deterministic temporally-contiguous split: first half=val, second half=test
-   211:         # (NEVER fallback to train, that would leak training data into evaluation)
-   212:         split_idx = n_held // 2
-   213:         val_indices = list(range(0, split_idx))
-   214:         test_indices = list(range(split_idx, n_held))
-   215:         val_dataset = Subset(held_out, val_indices)
-   216:         test_dataset = Subset(held_out, test_indices)
+   199:     # prepare_data.py always emits an explicit, independent test split (year-2
+   200:     # odd timesteps). If it is missing the data is stale (pre-temporal-holdout),
+   201:     # so fail loudly rather than silently scoring on the wrong/old split.
+   202:     if not os.path.exists(os.path.join(data_dir, 'test_inputs.npy')):
+   203:         raise RuntimeError(
+   204:             f"test_inputs.npy missing under {data_dir}: the prepared ClimSim data is "
+   205:             "stale. Regenerate with vendor/data_scripts/ClimSim/prepare_data.py (and "
+   206:             "rebuild the container image) so val/test are the year-2 timestep splits."
+   207:         )
+   208:     val_dataset = ClimSimDataset(data_dir, split='val')
+   209:     test_dataset = ClimSimDataset(data_dir, split='test')
+   210: 
+   211:     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True,
+   212:                               num_workers=4, pin_memory=True, drop_last=True)
+   213:     val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False,
+   214:                             num_workers=4, pin_memory=True)
+   215:     test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False,
+   216:                              num_workers=4, pin_memory=True)
    217: 
-   218:     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True,
-   219:                               num_workers=4, pin_memory=True, drop_last=True)
-   220:     val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False,
-   221:                             num_workers=4, pin_memory=True)
-   222:     test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False,
-   223:                              num_workers=4, pin_memory=True)
-   224: 
-   225:     print(f"Train samples: {len(train_dataset):,}, Val samples: {len(val_dataset):,}, "
-   226:           f"Test samples: {len(test_dataset):,}")
-   227:     print(f"Input dim: {INPUT_DIM}, Output dim: {OUTPUT_DIM}")
-   228:     print(f"Env: {env_label}, Seed: {seed}, Epochs: {num_epochs}")
-   229: 
-   230:     # ── Model Init ──
-   231:     model = Custom(INPUT_DIM, OUTPUT_DIM).to(device)
-   232:     n_params = sum(p.numel() for p in model.parameters())
-   233:     print(f"Model parameters: {n_params:,}")
-   234: 
-   235:     optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate,
-   236:                                   weight_decay=weight_decay)
-   237:     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=num_epochs)
-   238:     criterion = nn.MSELoss()
-   239: 
-   240:     # ── Training Loop (early stopping uses VAL only — test stays held-out) ──
-   241:     best_val_loss = float('inf')
-   242:     patience_counter = 0
-   243:     t0 = time.time()
-   244: 
-   245:     for epoch in range(1, num_epochs + 1):
-   246:         model.train()
-   247:         train_loss = 0.0
-   248:         n_batches = 0
-   249: 
-   250:         for inputs, targets in train_loader:
-   251:             inputs, targets = inputs.to(device), targets.to(device)
-   252:             optimizer.zero_grad()
-   253:             predictions = model(inputs)
-   254:             loss = criterion(predictions, targets)
-   255:             loss.backward()
-   256:             torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-   257:             optimizer.step()
-   258:             train_loss += loss.item()
-   259:             n_batches += 1
-   260: 
-   261:         scheduler.step()
-   262:         avg_train_loss = train_loss / max(n_batches, 1)
-   263: 
-   264:         # ── Validation (used for early stopping; NOT for final reporting) ──
-   265:         if epoch % eval_interval == 0 or epoch == num_epochs:
-   266:             model.eval()
-   267:             all_preds, all_targets = [], []
-   268:             val_loss = 0.0
-   269:             n_val = 0
-   270:             with torch.no_grad():
-   271:                 for inputs, targets in val_loader:
-   272:                     inputs, targets = inputs.to(device), targets.to(device)
-   273:                     predictions = model(inputs)
-   274:                     val_loss += criterion(predictions, targets).item()
-   275:                     all_preds.append(predictions)
-   276:                     all_targets.append(targets)
-   277:                     n_val += 1
+   218:     print(f"Train samples: {len(train_dataset):,}, Val samples: {len(val_dataset):,}, "
+   219:           f"Test samples: {len(test_dataset):,}")
+   220:     print(f"Input dim: {INPUT_DIM}, Output dim: {OUTPUT_DIM}")
+   221:     print(f"Env: {env_label}, Seed: {seed}, Epochs: {num_epochs}")
+   222: 
+   223:     # ── Model Init ──
+   224:     model = Custom(INPUT_DIM, OUTPUT_DIM).to(device)
+   225:     n_params = sum(p.numel() for p in model.parameters())
+   226:     print(f"Model parameters: {n_params:,}")
+   227: 
+   228:     optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate,
+   229:                                   weight_decay=weight_decay)
+   230:     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=num_epochs)
+   231:     criterion = nn.MSELoss()
+   232: 
+   233:     # ── Training Loop (early stopping uses VAL only — test stays held-out) ──
+   234:     # Select the checkpoint by validation NMSE (the reported metric), not raw
+   235:     # val MSE: under overfitting the two diverge (val MSE can stay flat while
+   236:     # val NMSE rises), so val-NMSE selection picks the genuinely best model.
+   237:     best_val_nmse = float('inf')
+   238:     patience_counter = 0
+   239:     t0 = time.time()
+   240: 
+   241:     for epoch in range(1, num_epochs + 1):
+   242:         model.train()
+   243:         train_loss = 0.0
+   244:         n_batches = 0
+   245: 
+   246:         for inputs, targets in train_loader:
+   247:             inputs, targets = inputs.to(device), targets.to(device)
+   248:             optimizer.zero_grad()
+   249:             predictions = model(inputs)
+   250:             loss = criterion(predictions, targets)
+   251:             loss.backward()
+   252:             torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+   253:             optimizer.step()
+   254:             train_loss += loss.item()
+   255:             n_batches += 1
+   256: 
+   257:         scheduler.step()
+   258:         avg_train_loss = train_loss / max(n_batches, 1)
+   259: 
+   260:         # ── Validation (used for early stopping; NOT for final reporting) ──
+   261:         if epoch % eval_interval == 0 or epoch == num_epochs:
+   262:             model.eval()
+   263:             all_preds, all_targets = [], []
+   264:             val_loss = 0.0
+   265:             n_val = 0
+   266:             with torch.no_grad():
+   267:                 for inputs, targets in val_loader:
+   268:                     inputs, targets = inputs.to(device), targets.to(device)
+   269:                     predictions = model(inputs)
+   270:                     val_loss += criterion(predictions, targets).item()
+   271:                     all_preds.append(predictions)
+   272:                     all_targets.append(targets)
+   273:                     n_val += 1
+   274: 
+   275:             avg_val_loss = val_loss / max(n_val, 1)
+   276:             all_preds = torch.cat(all_preds, dim=0)
+   277:             all_targets = torch.cat(all_targets, dim=0)
    278: 
-   279:             avg_val_loss = val_loss / max(n_val, 1)
-   280:             all_preds = torch.cat(all_preds, dim=0)
-   281:             all_targets = torch.cat(all_targets, dim=0)
+   279:             nmse = compute_nmse(all_preds, all_targets)
+   280:             r2 = compute_r2(all_preds, all_targets)
+   281:             rmse = compute_rmse(all_preds, all_targets)
    282: 
-   283:             nmse = compute_nmse(all_preds, all_targets)
-   284:             r2 = compute_r2(all_preds, all_targets)
-   285:             rmse = compute_rmse(all_preds, all_targets)
-   286: 
-   287:             elapsed = time.time() - t0
-   288:             lr_now = scheduler.get_last_lr()[0]
-   289:             print(f"Epoch {epoch}/{num_epochs}: train_loss={avg_train_loss:.6f}, "
-   290:                   f"val_loss={avg_val_loss:.6f}, nmse={nmse:.6f}, r2={r2:.4f}, "
-   291:                   f"rmse={rmse:.6f}, lr={lr_now:.6f}, time={elapsed:.1f}s")
-   292:             print(f"TRAIN_METRICS: epoch={epoch}, train_loss={avg_train_loss:.6f}, "
-   293:                   f"val_loss={avg_val_loss:.6f}, nmse={nmse:.6f}, r2={r2:.4f}", flush=True)
-   294: 
-   295:             if avg_val_loss < best_val_loss:
-   296:                 best_val_loss = avg_val_loss
-   297:                 patience_counter = 0
-   298:                 torch.save(model.state_dict(), os.path.join(output_dir, 'best_model.pt'))
-   299:             else:
-   300:                 patience_counter += eval_interval
-   301:                 if patience_counter >= patience:
-   302:                     print(f"Early stopping at epoch {epoch} (patience={patience})")
-   303:                     break
-   304: 
-   305:     # ── Final Evaluation on the held-out TEST split ──
-   306:     print("\n=== Final Evaluation (held-out test split) ===")
-   307:     model.load_state_dict(torch.load(os.path.join(output_dir, 'best_model.pt'),
-   308:                                      weights_only=True))
-   309:     model.eval()
-   310:     all_preds, all_targets = [], []
-   311:     with torch.no_grad():
-   312:         for inputs, targets in test_loader:
-   313:             inputs, targets = inputs.to(device), targets.to(device)
-   314:             predictions = model(inputs)
-   315:             all_preds.append(predictions)
-   316:             all_targets.append(targets)
-   317: 
-   318:     all_preds = torch.cat(all_preds, dim=0)
-   319:     all_targets = torch.cat(all_targets, dim=0)
+   283:             elapsed = time.time() - t0
+   284:             lr_now = scheduler.get_last_lr()[0]
+   285:             print(f"Epoch {epoch}/{num_epochs}: train_loss={avg_train_loss:.6f}, "
+   286:                   f"val_loss={avg_val_loss:.6f}, nmse={nmse:.6f}, r2={r2:.4f}, "
+   287:                   f"rmse={rmse:.6f}, lr={lr_now:.6f}, time={elapsed:.1f}s")
+   288:             print(f"TRAIN_METRICS: epoch={epoch}, train_loss={avg_train_loss:.6f}, "
+   289:                   f"val_loss={avg_val_loss:.6f}, nmse={nmse:.6f}, r2={r2:.4f}", flush=True)
+   290: 
+   291:             if nmse < best_val_nmse:
+   292:                 best_val_nmse = nmse
+   293:                 patience_counter = 0
+   294:                 torch.save(model.state_dict(), os.path.join(output_dir, f'best_model_{env_label}.pt'))
+   295:             else:
+   296:                 patience_counter += 1  # count evaluations, not epochs (budget-independent)
+   297:                 if patience_counter >= patience:
+   298:                     print(f"Early stopping at epoch {epoch} (patience={patience})")
+   299:                     break
+   300: 
+   301:     # ── Final Evaluation on the held-out TEST split ──
+   302:     print("\n=== Final Evaluation (held-out test split) ===")
+   303:     model.load_state_dict(torch.load(os.path.join(output_dir, f'best_model_{env_label}.pt'),
+   304:                                      weights_only=True))
+   305:     model.eval()
+   306:     all_preds, all_targets = [], []
+   307:     with torch.no_grad():
+   308:         for inputs, targets in test_loader:
+   309:             inputs, targets = inputs.to(device), targets.to(device)
+   310:             predictions = model(inputs)
+   311:             all_preds.append(predictions)
+   312:             all_targets.append(targets)
+   313: 
+   314:     all_preds = torch.cat(all_preds, dim=0)
+   315:     all_targets = torch.cat(all_targets, dim=0)
+   316: 
+   317:     final_nmse = compute_nmse(all_preds, all_targets)
+   318:     final_r2 = compute_r2(all_preds, all_targets)
+   319:     final_rmse = compute_rmse(all_preds, all_targets)
    320: 
-   321:     final_nmse = compute_nmse(all_preds, all_targets)
-   322:     final_r2 = compute_r2(all_preds, all_targets)
-   323:     final_rmse = compute_rmse(all_preds, all_targets)
-   324: 
-   325:     # Per-group metrics: multi-level tendencies vs single-level outputs
-   326:     n_ml_out = 6 * N_LEVELS  # 360
-   327:     ml_preds, ml_targets = all_preds[:, :n_ml_out], all_targets[:, :n_ml_out]
-   328:     sl_preds, sl_targets = all_preds[:, n_ml_out:], all_targets[:, n_ml_out:]
-   329:     ml_nmse = compute_nmse(ml_preds, ml_targets)
-   330:     sl_nmse = compute_nmse(sl_preds, sl_targets)
-   331: 
-   332:     print(f"Final NMSE: {final_nmse:.6f} (ML: {ml_nmse:.6f}, SL: {sl_nmse:.6f})")
-   333:     print(f"Final R²: {final_r2:.4f}")
-   334:     print(f"Final RMSE: {final_rmse:.6f}")
-   335:     print(f"TEST_METRICS: nmse={final_nmse:.6f}, r2={final_r2:.4f}, "
-   336:           f"rmse={final_rmse:.6f}, ml_nmse={ml_nmse:.6f}, sl_nmse={sl_nmse:.6f}",
-   337:           flush=True)
+   321:     # Per-group metrics: multi-level tendencies vs single-level outputs
+   322:     n_ml_out = 6 * N_LEVELS  # 360
+   323:     ml_preds, ml_targets = all_preds[:, :n_ml_out], all_targets[:, :n_ml_out]
+   324:     sl_preds, sl_targets = all_preds[:, n_ml_out:], all_targets[:, n_ml_out:]
+   325:     ml_nmse = compute_nmse(ml_preds, ml_targets)
+   326:     sl_nmse = compute_nmse(sl_preds, sl_targets)
+   327: 
+   328:     print(f"Final NMSE: {final_nmse:.6f} (ML: {ml_nmse:.6f}, SL: {sl_nmse:.6f})")
+   329:     print(f"Final R²: {final_r2:.4f}")
+   330:     print(f"Final RMSE: {final_rmse:.6f}")
+   331:     print(f"TEST_METRICS: nmse={final_nmse:.6f}, r2={final_r2:.4f}, "
+   332:           f"rmse={final_rmse:.6f}, ml_nmse={ml_nmse:.6f}, sl_nmse={sl_nmse:.6f}",
+   333:           flush=True)
 ```
 
 ## Reference Baselines
@@ -428,91 +424,86 @@ a baseline reproduction.
 In `ClimSim/custom_emulator.py`:
 
 ```python
-Lines 86–152:
+Lines 86–147:
     83: #   - The trainer wraps this model with AdamW + Cosine LR.
     84: #   - Outputs include 360 multi-level + 8 single-level dims.
     85: # ================================================================
-    86: class Custom(nn.Module):
-    87:     """1D CNN with residual blocks for climate emulation.
+    86: class _CNNResBlock(nn.Module):
+    87:     """ClimSim CNN residual block: Conv-ReLU-Drop-Conv-ReLU-Drop + 1x1 skip.
     88: 
-    89:     Reshapes input into (n_vars, n_levels) for convolution over vertical profiles,
-    90:     then projects back to output space.
-    91:     """
-    92: 
-    93:     def __init__(self, input_dim, output_dim):
-    94:         super().__init__()
-    95:         self.input_dim = input_dim
-    96:         self.output_dim = output_dim
+    89:     No normalization (reference hp_norm=False)."""
+    90:     def __init__(self, channels, kernel=3, dropout=0.175):
+    91:         super().__init__()
+    92:         pad = kernel // 2
+    93:         self.conv1 = nn.Conv1d(channels, channels, kernel, padding=pad)
+    94:         self.conv2 = nn.Conv1d(channels, channels, kernel, padding=pad)
+    95:         self.skip = nn.Conv1d(channels, channels, 1)
+    96:         self.drop = nn.Dropout(dropout)
     97: 
-    98:         # Input structure: 9 multi-level vars x 60 levels = 540, then 16-17 scalars
-    99:         self.n_ml_in = 9
-   100:         self.n_levels = 60
-   101:         self.n_sl_in = input_dim - self.n_ml_in * self.n_levels
+    98:     def forward(self, x):
+    99:         h = self.drop(F.relu(self.conv1(x)))
+   100:         h = self.drop(F.relu(self.conv2(h)))
+   101:         return h + self.skip(x)
    102: 
-   103:         # Project scalar inputs to per-level features
-   104:         self.scalar_proj = nn.Linear(self.n_sl_in, self.n_levels)
-   105: 
-   106:         # Conv channels: n_ml_in + 1 (from scalar projection)
-   107:         in_channels = self.n_ml_in + 1
-   108:         hidden_channels = 128
-   109:         n_blocks = 8
-   110: 
-   111:         # Initial projection
-   112:         self.input_conv = nn.Conv1d(in_channels, hidden_channels, kernel_size=3, padding=1)
-   113: 
-   114:         # Residual blocks
-   115:         self.blocks = nn.ModuleList()
-   116:         for _ in range(n_blocks):
-   117:             self.blocks.append(nn.Sequential(
-   118:                 nn.BatchNorm1d(hidden_channels),
-   119:                 nn.Conv1d(hidden_channels, hidden_channels, kernel_size=3, padding=1),
-   120:                 nn.ReLU(),
-   121:                 nn.Dropout(0.1),
-   122:                 nn.Conv1d(hidden_channels, hidden_channels, kernel_size=3, padding=1),
-   123:             ))
-   124: 
-   125:         # Output: multi-level tendencies
-   126:         self.n_ml_out = 6
-   127:         self.ml_head = nn.Conv1d(hidden_channels, self.n_ml_out, kernel_size=1)
-   128: 
-   129:         # Output: single-level scalars from pooled features
-   130:         self.sl_head = nn.Sequential(
-   131:             nn.AdaptiveAvgPool1d(1),
-   132:             nn.Flatten(),
-   133:             nn.Linear(hidden_channels, 64),
-   134:             nn.ReLU(),
-   135:             nn.Linear(64, 8),
-   136:         )
-   137: 
-   138:     def forward(self, x):
-   139:         B = x.shape[0]
-   140:         # Split multi-level and single-level inputs
-   141:         ml_in = x[:, :self.n_ml_in * self.n_levels].view(B, self.n_ml_in, self.n_levels)
-   142:         sl_in = x[:, self.n_ml_in * self.n_levels:]
-   143:         sl_expanded = self.scalar_proj(sl_in).unsqueeze(1)  # (B, 1, 60)
-   144:         h = torch.cat([ml_in, sl_expanded], dim=1)  # (B, n_ml_in+1, 60)
-   145: 
-   146:         h = F.relu(self.input_conv(h))
-   147:         for block in self.blocks:
-   148:             h = h + block(h)
-   149: 
-   150:         ml_out = self.ml_head(h).reshape(B, -1)  # (B, 360)
-   151:         sl_out = self.sl_head(h)  # (B, 8)
-   152:         return torch.cat([ml_out, sl_out], dim=-1)
-   153: # ================================================================
-   154: # END EDITABLE REGION
-   155: # ================================================================
+   103: 
+   104: class Custom(nn.Module):
+   105:     """1D ResNet CNN over vertical profiles (ClimSim reference: 12 blocks, 406 ch)."""
+   106: 
+   107:     N_LEVELS = 60
+   108:     N_PROFILE_IN = 9
+   109:     N_PROFILE_OUT = 6
+   110:     N_SCALAR_OUT = 8
+   111:     CHANNELS = 406
+   112:     N_BLOCKS = 12
+   113:     KERNEL = 3
+   114:     DROPOUT = 0.175
+   115: 
+   116:     def __init__(self, input_dim, output_dim):
+   117:         super().__init__()
+   118:         self.input_dim = input_dim
+   119:         self.output_dim = output_dim
+   120:         self.n_scalar_in = input_dim - self.N_PROFILE_IN * self.N_LEVELS  # 16
+   121:         in_ch = self.N_PROFILE_IN + self.n_scalar_in                      # 25 channels
+   122: 
+   123:         self.input_conv = nn.Conv1d(in_ch, self.CHANNELS, self.KERNEL, padding=self.KERNEL // 2)
+   124:         self.blocks = nn.ModuleList(
+   125:             [_CNNResBlock(self.CHANNELS, self.KERNEL, self.DROPOUT) for _ in range(self.N_BLOCKS)]
+   126:         )
+   127:         # Pre-output ELU projection, then split heads.
+   128:         self.out_conv = nn.Conv1d(self.CHANNELS, self.CHANNELS, 1)
+   129:         self.ml_head = nn.Conv1d(self.CHANNELS, self.N_PROFILE_OUT, 1)       # linear
+   130:         self.sl_head = nn.Sequential(                                        # non-negative scalars
+   131:             nn.AdaptiveAvgPool1d(1), nn.Flatten(),
+   132:             nn.Linear(self.CHANNELS, self.N_SCALAR_OUT),
+   133:         )
+   134: 
+   135:     def forward(self, x):
+   136:         B = x.shape[0]
+   137:         ml = x[:, :self.N_PROFILE_IN * self.N_LEVELS].reshape(B, self.N_PROFILE_IN, self.N_LEVELS)
+   138:         sl = x[:, self.N_PROFILE_IN * self.N_LEVELS:].unsqueeze(2).expand(-1, -1, self.N_LEVELS)
+   139:         h = torch.cat([ml, sl], dim=1)                  # [B, 25, 60]
+   140:         h = F.relu(self.input_conv(h))
+   141:         for blk in self.blocks:
+   142:             h = blk(h)
+   143:         h = F.elu(self.out_conv(h))                     # pre-output ELU
+   144:         ml_out = self.ml_head(h).reshape(B, -1)         # [B, 360], linear
+   145:         # NOTE: outputs are z-normalized (straddle zero) -> scalar head stays linear.
+   146:         sl_out = self.sl_head(h)                         # [B, 8]
+   147:         return torch.cat([ml_out, sl_out], dim=-1)
+   148: # ================================================================
+   149: # END EDITABLE REGION
+   150: # ================================================================
 
-Lines 207–209:
-   204:     weight_decay = float(os.environ.get('WEIGHT_DECAY', 1e-5))
-   205:     eval_interval = int(os.environ.get('EVAL_INTERVAL', 1))
-   206:     patience = 10
-   207:     # CONFIG_OVERRIDES: override training hyperparameters for your method.
-   208:     # Allowed keys: learning_rate, weight_decay, patience.
-   209:     CONFIG_OVERRIDES = {}
-   210: 
-   211:     # Apply per-method hyperparameter overrides (fixed infrastructure)
-   212:     for _k, _v in CONFIG_OVERRIDES.items():
+Lines 202–204:
+   199:     weight_decay = float(os.environ.get('WEIGHT_DECAY', 1e-5))
+   200:     eval_interval = int(os.environ.get('EVAL_INTERVAL', 1))
+   201:     patience = 10
+   202:     # CONFIG_OVERRIDES: override training hyperparameters for your method.
+   203:     # Allowed keys: learning_rate, weight_decay, patience.
+   204:     CONFIG_OVERRIDES = {}
+   205: 
+   206:     # Apply per-method hyperparameter overrides (fixed infrastructure)
+   207:     for _k, _v in CONFIG_OVERRIDES.items():
 ```
 
 ### `ed` baseline — editable region  [READ-ONLY — reference implementation]
@@ -520,80 +511,56 @@ Lines 207–209:
 In `ClimSim/custom_emulator.py`:
 
 ```python
-Lines 86–141:
+Lines 86–117:
     83: #   - The trainer wraps this model with AdamW + Cosine LR.
     84: #   - Outputs include 360 multi-level + 8 single-level dims.
     85: # ================================================================
-    86: class _EDBlock(nn.Module):
-    87:     """FC + LayerNorm + ELU + Dropout, one rung of the encoder/decoder ladder."""
-    88:     def __init__(self, in_dim, out_dim, dropout=0.1):
-    89:         super().__init__()
-    90:         self.net = nn.Sequential(
-    91:             nn.Linear(in_dim, out_dim),
-    92:             nn.LayerNorm(out_dim),
-    93:             nn.ELU(),
-    94:             nn.Dropout(p=dropout),
-    95:         )
-    96: 
-    97:     def forward(self, x):
-    98:         return self.net(x)
+    86: class Custom(nn.Module):
+    87:     """Plain fully-connected Encoder-Decoder with a 5-node latent (ClimSim ED)."""
+    88: 
+    89:     INTERMEDIATE = 463
+    90:     LATENT_DIM = 5
+    91:     # intermediate_dim / {1, 1, 2, 4, 8, 16} (floor), matching the reference taper.
+    92:     ENC_DIMS = [463, 463, 231, 115, 57, 28]
+    93:     DEC_DIMS = [28, 57, 115, 231, 463, 463]
+    94: 
+    95:     def __init__(self, input_dim, output_dim):
+    96:         super().__init__()
+    97:         self.input_dim = input_dim
+    98:         self.output_dim = output_dim
     99: 
-   100: 
-   101: class Custom(nn.Module):
-   102:     """Wide Encoder-Decoder with 5-node latent bottleneck.
-   103: 
-   104:     Encoder: 6 FC blocks 556 -> 768 -> 512 -> 384 -> 256 -> 128 -> 5
-   105:     Latent:  5 nodes (paper-faithful)
-   106:     Decoder: 6 FC blocks 5 -> 128 -> 256 -> 384 -> 512 -> 768 -> 368
-   107:     """
-   108: 
-   109:     LATENT_DIM = 5
-   110:     ENC_DIMS = [768, 512, 384, 256, 128]   # 6 FC layers (the 6th = projection to LATENT)
-   111:     DEC_DIMS = [128, 256, 384, 512, 768]   # mirrors encoder
-   112: 
-   113:     def __init__(self, input_dim, output_dim):
-   114:         super().__init__()
-   115:         self.input_dim = input_dim
-   116:         self.output_dim = output_dim
-   117: 
-   118:         # ---- Encoder: 6 FC blocks ending at the 5-node latent ----
-   119:         enc_layers = []
-   120:         prev = input_dim
-   121:         for d in self.ENC_DIMS:
-   122:             enc_layers.append(_EDBlock(prev, d, dropout=0.1))
-   123:             prev = d
-   124:         # 6th FC: projection into the bottleneck (no nonlinearity → linear code)
-   125:         enc_layers.append(nn.Linear(prev, self.LATENT_DIM))
-   126:         self.encoder = nn.Sequential(*enc_layers)
-   127: 
-   128:         # ---- Decoder: 6 FC blocks expanding from the 5-node latent ----
-   129:         dec_layers = []
-   130:         prev = self.LATENT_DIM
-   131:         for d in self.DEC_DIMS:
-   132:             dec_layers.append(_EDBlock(prev, d, dropout=0.1))
-   133:             prev = d
-   134:         # 6th FC: projection to output (linear)
-   135:         dec_layers.append(nn.Linear(prev, output_dim))
-   136:         self.decoder = nn.Sequential(*dec_layers)
-   137: 
-   138:     def forward(self, x):
-   139:         z = self.encoder(x)              # [B, 5]
-   140:         y = self.decoder(z)              # [B, output_dim]
-   141:         return y
-   142: # ================================================================
-   143: # END EDITABLE REGION
-   144: # ================================================================
+   100:         enc = []
+   101:         prev = input_dim
+   102:         for d in self.ENC_DIMS:
+   103:             enc += [nn.Linear(prev, d), nn.ReLU()]
+   104:             prev = d
+   105:         enc += [nn.Linear(prev, self.LATENT_DIM), nn.ReLU()]  # ReLU latent (reference)
+   106:         self.encoder = nn.Sequential(*enc)
+   107: 
+   108:         dec = []
+   109:         prev = self.LATENT_DIM
+   110:         for d in self.DEC_DIMS:
+   111:             dec += [nn.Linear(prev, d), nn.ReLU()]
+   112:             prev = d
+   113:         dec += [nn.Linear(prev, output_dim), nn.ELU()]   # ELU output (reference)
+   114:         self.decoder = nn.Sequential(*dec)
+   115: 
+   116:     def forward(self, x):
+   117:         return self.decoder(self.encoder(x))
+   118: # ================================================================
+   119: # END EDITABLE REGION
+   120: # ================================================================
 
-Lines 196–198:
-   193:     weight_decay = float(os.environ.get('WEIGHT_DECAY', 1e-5))
-   194:     eval_interval = int(os.environ.get('EVAL_INTERVAL', 1))
-   195:     patience = 10
-   196:     # CONFIG_OVERRIDES: override training hyperparameters for your method.
-   197:     # Allowed keys: learning_rate, weight_decay, patience.
-   198:     CONFIG_OVERRIDES = {}
-   199: 
-   200:     # Apply per-method hyperparameter overrides (fixed infrastructure)
-   201:     for _k, _v in CONFIG_OVERRIDES.items():
+Lines 172–174:
+   169:     weight_decay = float(os.environ.get('WEIGHT_DECAY', 1e-5))
+   170:     eval_interval = int(os.environ.get('EVAL_INTERVAL', 1))
+   171:     patience = 10
+   172:     # CONFIG_OVERRIDES: override training hyperparameters for your method.
+   173:     # Allowed keys: learning_rate, weight_decay, patience.
+   174:     CONFIG_OVERRIDES = {}
+   175: 
+   176:     # Apply per-method hyperparameter overrides (fixed infrastructure)
+   177:     for _k, _v in CONFIG_OVERRIDES.items():
 ```
 
 ### `unet` baseline — editable region  [READ-ONLY — reference implementation]
@@ -601,174 +568,147 @@ Lines 196–198:
 In `ClimSim/custom_emulator.py`:
 
 ```python
-Lines 86–235:
+Lines 86–208:
     83: #   - The trainer wraps this model with AdamW + Cosine LR.
     84: #   - Outputs include 360 multi-level + 8 single-level dims.
     85: # ================================================================
-    86: class ResBlock1d(nn.Module):
-    87:     """1D residual block: GroupNorm + Conv1d + SiLU + Conv1d + skip."""
-    88:     def __init__(self, channels, dropout=0.1):
+    86: class _UNetResBlock(nn.Module):
+    87:     """GroupNorm + SiLU + Conv1d, twice, with a residual connection (no attention)."""
+    88:     def __init__(self, channels):
     89:         super().__init__()
-    90:         self.norm1 = nn.GroupNorm(min(32, channels // 4), channels)
-    91:         self.conv1 = nn.Conv1d(channels, channels, 3, padding=1)
-    92:         self.norm2 = nn.GroupNorm(min(32, channels // 4), channels)
-    93:         self.conv2 = nn.Conv1d(channels, channels, 3, padding=1)
-    94:         self.drop = nn.Dropout(dropout)
-    95:         nn.init.zeros_(self.conv2.weight)
-    96:         nn.init.zeros_(self.conv2.bias)
-    97: 
-    98:     def forward(self, x):
-    99:         h = F.silu(self.norm1(x))
-   100:         h = self.conv1(h)
-   101:         h = self.drop(F.silu(self.norm2(h)))
-   102:         h = self.conv2(h)
-   103:         return (x + h) * (0.5 ** 0.5)
-   104: 
-   105: 
-   106: class AttnBlock1d(nn.Module):
-   107:     """Self-attention over the sequence (level) dimension."""
-   108:     def __init__(self, channels, num_heads=4):
-   109:         super().__init__()
-   110:         self.norm = nn.GroupNorm(min(32, channels // 4), channels)
-   111:         self.qkv = nn.Conv1d(channels, channels * 3, 1)
-   112:         self.proj = nn.Conv1d(channels, channels, 1)
-   113:         self.num_heads = num_heads
-   114:         nn.init.zeros_(self.proj.weight)
-   115:         nn.init.zeros_(self.proj.bias)
-   116: 
-   117:     def forward(self, x):
-   118:         B, C, L = x.shape
-   119:         h = self.norm(x)
-   120:         qkv = self.qkv(h).reshape(B, 3, self.num_heads, C // self.num_heads, L)
-   121:         q, k, v = qkv[:, 0], qkv[:, 1], qkv[:, 2]
-   122:         # Scaled dot-product attention
-   123:         scale = (C // self.num_heads) ** -0.5
-   124:         attn = torch.einsum('bhcl,bhcm->bhlm', q, k) * scale
-   125:         attn = attn.softmax(dim=-1)
-   126:         out = torch.einsum('bhlm,bhcm->bhcl', attn, v)
-   127:         out = out.reshape(B, C, L)
-   128:         return (x + self.proj(out)) * (0.5 ** 0.5)
-   129: 
-   130: 
-   131: class Custom(nn.Module):
-   132:     """1D U-Net for climate physics emulation (adapted from ClimsimUnet v4).
-   133: 
-   134:     Architecture:
-   135:     - Reshape flat [B, 556] -> [B, num_profile_vars + num_scalar_vars, 60]
-   136:       (profile vars naturally span 60 levels; scalars broadcast to all levels)
-   137:     - Pad to 64 (power of 2) for clean downsampling
-   138:     - Encoder: 3 resolution levels with residual blocks + downsampling
-   139:     - Bottleneck: residual block + self-attention
-   140:     - Decoder: 3 levels with skip connections + upsampling
-   141:     - Output projection back to flat [B, 368]
-   142:     """
-   143:     N_LEVELS = 60
-   144:     N_PROFILE_IN = 9   # 9 multi-level input vars
-   145:     N_SCALAR_IN = 16   # 16 single-level input vars
-   146:     N_PROFILE_OUT = 6  # 6 multi-level output vars
-   147:     N_SCALAR_OUT = 8   # 8 single-level output vars
-   148: 
-   149:     def __init__(self, input_dim, output_dim):
-   150:         super().__init__()
-   151:         self.input_dim = input_dim
-   152:         self.output_dim = output_dim
-   153: 
-   154:         in_ch = self.N_PROFILE_IN + self.N_SCALAR_IN  # 25 channels
-   155:         base_ch = 128
-   156: 
-   157:         # Encoder
-   158:         self.enc_in = nn.Conv1d(in_ch, base_ch, 3, padding=1)
-   159:         self.enc1 = nn.ModuleList([ResBlock1d(base_ch) for _ in range(3)])
-   160:         self.down1 = nn.Conv1d(base_ch, base_ch * 2, 2, stride=2)  # 64->32
-   161:         self.enc2 = nn.ModuleList([ResBlock1d(base_ch * 2) for _ in range(3)])
-   162:         self.down2 = nn.Conv1d(base_ch * 2, base_ch * 2, 2, stride=2)  # 32->16
-   163: 
-   164:         # Bottleneck with attention
-   165:         self.mid1 = ResBlock1d(base_ch * 2)
-   166:         self.mid_attn = AttnBlock1d(base_ch * 2, num_heads=4)
-   167:         self.mid2 = ResBlock1d(base_ch * 2)
-   168: 
-   169:         # Decoder
-   170:         self.up2 = nn.ConvTranspose1d(base_ch * 2, base_ch * 2, 2, stride=2)  # 16->32
-   171:         self.dec2 = nn.ModuleList([ResBlock1d(base_ch * 4)] +
-   172:                                   [ResBlock1d(base_ch * 4) for _ in range(2)])
-   173:         self.dec2_proj = nn.Conv1d(base_ch * 4, base_ch * 2, 1)
-   174:         self.up1 = nn.ConvTranspose1d(base_ch * 2, base_ch, 2, stride=2)  # 32->64
-   175:         self.dec1 = nn.ModuleList([ResBlock1d(base_ch * 2)] +
-   176:                                   [ResBlock1d(base_ch * 2) for _ in range(2)])
-   177:         self.dec1_proj = nn.Conv1d(base_ch * 2, base_ch, 1)
-   178: 
-   179:         # Output
-   180:         self.out_norm = nn.GroupNorm(min(32, base_ch // 4), base_ch)
-   181:         self.out_conv = nn.Conv1d(base_ch, self.N_PROFILE_OUT + self.N_SCALAR_OUT, 3, padding=1)
-   182: 
-   183:     def forward(self, x):
-   184:         B = x.shape[0]
-   185: 
-   186:         # Reshape: split profile (9 vars x 60 levels) and scalar (16 vars)
-   187:         x_profile = x[:, :self.N_PROFILE_IN * self.N_LEVELS]
-   188:         x_scalar = x[:, self.N_PROFILE_IN * self.N_LEVELS:]
-   189: 
-   190:         x_profile = x_profile.reshape(B, self.N_PROFILE_IN, self.N_LEVELS)  # [B, 9, 60]
-   191:         x_scalar = x_scalar.unsqueeze(2).expand(-1, -1, self.N_LEVELS)      # [B, 16, 60]
-   192:         h = torch.cat([x_profile, x_scalar], dim=1)  # [B, 25, 60]
-   193: 
-   194:         # Pad 60 -> 64 for clean 2x downsampling
-   195:         h = F.pad(h, (0, 4))  # [B, 25, 64]
-   196: 
-   197:         # Encoder
-   198:         h = self.enc_in(h)
-   199:         for block in self.enc1:
-   200:             h = block(h)
-   201:         skip1 = h  # [B, 128, 64]
-   202:         h = self.down1(h)  # [B, 256, 32]
-   203:         for block in self.enc2:
-   204:             h = block(h)
-   205:         skip2 = h  # [B, 256, 32]
-   206:         h = self.down2(h)  # [B, 256, 16]
+    90:         g = min(32, max(1, channels // 4))
+    91:         self.norm1 = nn.GroupNorm(g, channels)
+    92:         self.conv1 = nn.Conv1d(channels, channels, 3, padding=1)
+    93:         self.norm2 = nn.GroupNorm(g, channels)
+    94:         self.conv2 = nn.Conv1d(channels, channels, 3, padding=1)
+    95:         nn.init.zeros_(self.conv2.weight); nn.init.zeros_(self.conv2.bias)
+    96: 
+    97:     def forward(self, x):
+    98:         h = self.conv1(F.silu(self.norm1(x)))
+    99:         h = self.conv2(F.silu(self.norm2(h)))
+   100:         return x + h
+   101: 
+   102: 
+   103: class _UNetAttn(nn.Module):
+   104:     """Multi-head self-attention over the vertical-level axis, at the bottleneck
+   105:     (the shipped ClimsimUnet has a bottleneck attention block)."""
+   106:     def __init__(self, channels, num_heads=4):
+   107:         super().__init__()
+   108:         self.norm = nn.GroupNorm(min(32, max(1, channels // 4)), channels)
+   109:         self.qkv = nn.Conv1d(channels, channels * 3, 1)
+   110:         self.proj = nn.Conv1d(channels, channels, 1)
+   111:         self.num_heads = num_heads
+   112:         nn.init.zeros_(self.proj.weight); nn.init.zeros_(self.proj.bias)
+   113: 
+   114:     def forward(self, x):
+   115:         B, C, L = x.shape
+   116:         qkv = self.qkv(self.norm(x)).reshape(B, 3, self.num_heads, C // self.num_heads, L)
+   117:         q, k, v = qkv[:, 0], qkv[:, 1], qkv[:, 2]
+   118:         attn = torch.einsum('bhcl,bhcm->bhlm', q, k) * (C // self.num_heads) ** -0.5
+   119:         attn = attn.softmax(dim=-1)
+   120:         out = torch.einsum('bhlm,bhcm->bhcl', attn, v).reshape(B, C, L)
+   121:         return x + self.proj(out)
+   122: 
+   123: 
+   124: class Custom(nn.Module):
+   125:     """1D U-Net (ClimsimUnet): depth 4, channels [128,256,256,256], bottleneck attention."""
+   126: 
+   127:     N_LEVELS = 60
+   128:     PAD_LEVELS = 64
+   129:     N_PROFILE_IN = 9
+   130:     N_SCALAR_IN = 16
+   131:     N_PROFILE_OUT = 6
+   132:     N_SCALAR_OUT = 8
+   133:     CH = [128, 256, 256, 256]   # 4 resolution levels: 64, 32, 16, 8
+   134:     ENC_BLOCKS = 4              # reference num_blocks per encoder level
+   135:     DEC_BLOCKS = 5             # reference num_blocks + 1 per decoder level
+   136: 
+   137:     def __init__(self, input_dim, output_dim):
+   138:         super().__init__()
+   139:         self.input_dim = input_dim
+   140:         self.output_dim = output_dim
+   141:         in_ch = self.N_PROFILE_IN + self.N_SCALAR_IN     # 25 channels
+   142: 
+   143:         c0, c1, c2, c3 = self.CH
+   144:         mk = lambda c, n: nn.ModuleList([_UNetResBlock(c) for _ in range(n)])
+   145: 
+   146:         self.enc_in = nn.Conv1d(in_ch, c0, 3, padding=1)
+   147:         self.enc0 = mk(c0, self.ENC_BLOCKS)
+   148:         self.down0 = nn.Conv1d(c0, c1, 2, stride=2)      # 64 -> 32
+   149:         self.enc1 = mk(c1, self.ENC_BLOCKS)
+   150:         self.down1 = nn.Conv1d(c1, c2, 2, stride=2)      # 32 -> 16
+   151:         self.enc2 = mk(c2, self.ENC_BLOCKS)
+   152:         self.down2 = nn.Conv1d(c2, c3, 2, stride=2)      # 16 -> 8
+   153:         self.mid = mk(c3, self.ENC_BLOCKS)               # bottleneck
+   154:         self.mid_attn = _UNetAttn(c3)                    # bottleneck self-attention
+   155: 
+   156:         self.up2 = nn.ConvTranspose1d(c3, c2, 2, stride=2)   # 8 -> 16
+   157:         self.dec2 = mk(c2, self.DEC_BLOCKS); self.dec2_proj = nn.Conv1d(c2 + c2, c2, 1)
+   158:         self.up1 = nn.ConvTranspose1d(c2, c1, 2, stride=2)   # 16 -> 32
+   159:         self.dec1 = mk(c1, self.DEC_BLOCKS); self.dec1_proj = nn.Conv1d(c1 + c1, c1, 1)
+   160:         self.up0 = nn.ConvTranspose1d(c1, c0, 2, stride=2)   # 32 -> 64
+   161:         self.dec0 = mk(c0, self.DEC_BLOCKS); self.dec0_proj = nn.Conv1d(c0 + c0, c0, 1)
+   162: 
+   163:         self.out_norm = nn.GroupNorm(min(32, max(1, c0 // 4)), c0)
+   164:         self.out_conv = nn.Conv1d(c0, self.N_PROFILE_OUT + self.N_SCALAR_OUT, 3, padding=1)
+   165: 
+   166:     def _run(self, blocks, h):
+   167:         for b in blocks:
+   168:             h = b(h)
+   169:         return h
+   170: 
+   171:     def forward(self, x):
+   172:         B = x.shape[0]
+   173:         ml = x[:, :self.N_PROFILE_IN * self.N_LEVELS].reshape(B, self.N_PROFILE_IN, self.N_LEVELS)
+   174:         sl = x[:, self.N_PROFILE_IN * self.N_LEVELS:].unsqueeze(2).expand(-1, -1, self.N_LEVELS)
+   175:         h = torch.cat([ml, sl], dim=1)                          # [B, 25, 60]
+   176:         h = F.pad(h, (0, self.PAD_LEVELS - self.N_LEVELS))      # -> 64
+   177: 
+   178:         h = self.enc_in(h)
+   179:         s0 = self._run(self.enc0, h)                            # [B, c0, 64]
+   180:         h = self._run(self.enc1, self.down0(s0)); s1 = h        # [B, c1, 32]
+   181:         h = self._run(self.enc2, self.down1(s1)); s2 = h        # [B, c2, 16]
+   182:         h = self._run(self.mid, self.down2(s2))                 # [B, c3, 8]
+   183:         h = self.mid_attn(h)                                    # bottleneck attention
+   184: 
+   185:         h = self.dec2_proj(torch.cat([self.up2(h), s2], dim=1))
+   186:         h = self._run(self.dec2, h)
+   187:         h = self.dec1_proj(torch.cat([self.up1(h), s1], dim=1))
+   188:         h = self._run(self.dec1, h)
+   189:         h = self.dec0_proj(torch.cat([self.up0(h), s0], dim=1))
+   190:         h = self._run(self.dec0, h)
+   191: 
+   192:         h = self.out_conv(F.silu(self.out_norm(h)))             # [B, 14, 64]
+   193:         h = h[:, :, :self.N_LEVELS]                             # [B, 14, 60]
+   194:         y_ml = h[:, :self.N_PROFILE_OUT, :].reshape(B, -1)      # [B, 360]
+   195:         # outputs are z-normalized (straddle zero) -> scalar head stays linear.
+   196:         y_sl = h[:, self.N_PROFILE_OUT:, :].mean(dim=2)         # [B, 8]
+   197:         return torch.cat([y_ml, y_sl], dim=1)
+   198: 
+   199: 
+   200: # Reference trains with Huber loss (delta=1); replace the trainer's MSELoss with
+   201: # a Huber loss. Use a proper subclass of the canonical MSELoss (not a lambda) so
+   202: # that, if all baselines are imported into one process (e.g. budget_check.py),
+   203: # a later baseline that subclasses nn.MSELoss still works.
+   204: class _UNetHuberLoss(torch.nn.modules.loss.MSELoss):
+   205:     def forward(self, pred, target):
+   206:         return F.huber_loss(pred, target, delta=1.0)
    207: 
-   208:         # Bottleneck
-   209:         h = self.mid1(h)
-   210:         h = self.mid_attn(h)
-   211:         h = self.mid2(h)
-   212: 
-   213:         # Decoder
-   214:         h = self.up2(h)  # [B, 256, 32]
-   215:         h = torch.cat([h, skip2], dim=1)  # [B, 512, 32]
-   216:         for block in self.dec2:
-   217:             h = block(h)
-   218:         h = self.dec2_proj(h)  # [B, 256, 32]
-   219:         h = self.up1(h)  # [B, 128, 64]
-   220:         h = torch.cat([h, skip1], dim=1)  # [B, 256, 64]
-   221:         for block in self.dec1:
-   222:             h = block(h)
-   223:         h = self.dec1_proj(h)  # [B, 128, 64]
-   224: 
-   225:         # Output
-   226:         h = self.out_conv(F.silu(self.out_norm(h)))  # [B, 14, 64]
-   227: 
-   228:         # Remove padding and reshape
-   229:         h = h[:, :, :self.N_LEVELS]  # [B, 14, 60]
-   230: 
-   231:         y_profile = h[:, :self.N_PROFILE_OUT, :].reshape(B, self.N_PROFILE_OUT * self.N_LEVELS)
-   232:         y_scalar = h[:, self.N_PROFILE_OUT:, :].mean(dim=2)  # avg over levels
-   233:         y_scalar = F.relu(y_scalar)  # non-negative scalar outputs
-   234: 
-   235:         return torch.cat([y_profile, y_scalar], dim=1)
-   236: # ================================================================
-   237: # END EDITABLE REGION
-   238: # ================================================================
+   208: nn.MSELoss = _UNetHuberLoss
+   209: # ================================================================
+   210: # END EDITABLE REGION
+   211: # ================================================================
 
-Lines 290–292:
-   287:     weight_decay = float(os.environ.get('WEIGHT_DECAY', 1e-5))
-   288:     eval_interval = int(os.environ.get('EVAL_INTERVAL', 1))
-   289:     patience = 10
-   290:     # CONFIG_OVERRIDES: override training hyperparameters for your method.
-   291:     # Allowed keys: learning_rate, weight_decay, patience.
-   292:     CONFIG_OVERRIDES = {}
-   293: 
-   294:     # Apply per-method hyperparameter overrides (fixed infrastructure)
-   295:     for _k, _v in CONFIG_OVERRIDES.items():
+Lines 263–265:
+   260:     weight_decay = float(os.environ.get('WEIGHT_DECAY', 1e-5))
+   261:     eval_interval = int(os.environ.get('EVAL_INTERVAL', 1))
+   262:     patience = 10
+   263:     # CONFIG_OVERRIDES: override training hyperparameters for your method.
+   264:     # Allowed keys: learning_rate, weight_decay, patience.
+   265:     CONFIG_OVERRIDES = {}
+   266: 
+   267:     # Apply per-method hyperparameter overrides (fixed infrastructure)
+   268:     for _k, _v in CONFIG_OVERRIDES.items():
 ```
 
 ### `hsr` baseline — editable region  [READ-ONLY — reference implementation]
@@ -776,115 +716,107 @@ Lines 290–292:
 In `ClimSim/custom_emulator.py`:
 
 ```python
-Lines 86–176:
+Lines 86–168:
     83: #   - The trainer wraps this model with AdamW + Cosine LR.
     84: #   - Outputs include 360 multi-level + 8 single-level dims.
     85: # ================================================================
-    86: class _HSRBlock(nn.Module):
-    87:     """Shared-backbone block: Linear + LayerNorm + Dropout + ReLU."""
-    88:     def __init__(self, in_dim, out_dim, dropout=0.1):
+    86: class _HSRNet(nn.Module):
+    87:     """One MLP head: `layers` x (Linear -> LayerNorm -> Dropout -> ReLU) + Linear."""
+    88:     def __init__(self, in_dim, out_dim, hidden=1024, layers=4, dropout=0.0):
     89:         super().__init__()
-    90:         self.net = nn.Sequential(
-    91:             nn.Linear(in_dim, out_dim),
-    92:             nn.LayerNorm(out_dim),
-    93:             nn.Dropout(p=dropout),
-    94:             nn.ReLU(),
-    95:         )
-    96: 
-    97:     def forward(self, x):
-    98:         return self.net(x)
-    99: 
+    90:         blocks = []
+    91:         prev = in_dim
+    92:         for _ in range(layers):
+    93:             blocks += [nn.Linear(prev, hidden), nn.LayerNorm(hidden), nn.Dropout(dropout), nn.ReLU()]
+    94:             prev = hidden
+    95:         blocks.append(nn.Linear(prev, out_dim))
+    96:         self.net = nn.Sequential(*blocks)
+    97: 
+    98:     def forward(self, x):
+    99:         return self.net(x)
    100: 
-   101: class Custom(nn.Module):
-   102:     """Heteroskedastic Regression: single shared backbone + twin heads (mu, log_var).
-   103: 
-   104:     Trained with Gaussian NLL on (mu, log_var). At inference time only mu is
-   105:     returned, matching the ClimSim evaluation protocol where reported metrics
-   106:     are computed against the predicted mean.
-   107:     """
-   108: 
-   109:     def __init__(self, input_dim, output_dim):
-   110:         super().__init__()
-   111:         hidden = 768
-   112:         n_layers = 5
-   113: 
-   114:         # Single shared backbone (one set of weights — paper-faithful)
-   115:         layers = []
-   116:         for i in range(n_layers):
-   117:             layers.append(_HSRBlock(
-   118:                 input_dim if i == 0 else hidden, hidden, dropout=0.1
-   119:             ))
-   120:         self.backbone = nn.Sequential(*layers)
-   121: 
-   122:         # Twin output heads — both branch off the SAME backbone activation
-   123:         self.head_mean = nn.Linear(hidden, output_dim)
-   124:         self.head_logvar = nn.Linear(hidden, output_dim)
-   125: 
-   126:         # Stash for the loss-replacement override
-   127:         self._last_logvar = None
-   128:         self._last_mean = None
-   129: 
-   130:     def forward(self, x):
-   131:         h = self.backbone(x)
-   132:         mu = self.head_mean(h)
-   133:         log_var = self.head_logvar(h)
-   134:         # Numerical stability: clamp log-variance into a sane range
-   135:         log_var = torch.clamp(log_var, min=-10.0, max=10.0)
-   136:         # Stash for the NLL surrogate (used during training)
-   137:         self._last_mean = mu
-   138:         self._last_logvar = log_var
-   139:         # Return mean for downstream metric computation (NMSE/R2/RMSE on mu)
-   140:         return mu
-   141: 
-   142:     def gaussian_nll(self, mu, log_var, target):
-   143:         """Per-element Gaussian NLL averaged over batch and dims."""
-   144:         # 0.5 * (log_var + (y-mu)^2 * exp(-log_var)) [+ const]
-   145:         precision = torch.exp(-log_var)
-   146:         return 0.5 * (log_var + (target - mu) ** 2 * precision).mean()
-   147: 
-   148: 
-   149: # ---------------------------------------------------------------------------
-   150: # Loss-replacement: monkey-patch nn.MSELoss so the trainer's
-   151: # ``criterion(predictions, targets)`` uses the Gaussian NLL on the model's
-   152: # stashed (mu, log_var) when the active model is a heteroskedastic Custom.
-   153: # This keeps the editable-region diff minimal (no trainer changes) while
-   154: # producing the paper-faithful NLL training objective.
-   155: # ---------------------------------------------------------------------------
-   156: _OrigMSELoss = nn.MSELoss
-   157: 
-   158: class _HSRMSELossShim(_OrigMSELoss):
-   159:     _active_model = None  # set after model construction below
-   160: 
-   161:     def forward(self, predictions, target):
-   162:         m = _HSRMSELossShim._active_model
-   163:         if m is not None and getattr(m, '_last_logvar', None) is not None \
-   164:            and m._last_mean is predictions:
-   165:             return m.gaussian_nll(m._last_mean, m._last_logvar, target)
-   166:         return super().forward(predictions, target)
+   101: 
+   102: class Custom(nn.Module):
+   103:     """Heteroskedastic regression: separate mean and log-precision networks."""
+   104: 
+   105:     def __init__(self, input_dim, output_dim):
+   106:         super().__init__()
+   107:         self.input_dim = input_dim
+   108:         self.output_dim = output_dim
+   109:         self.mean = _HSRNet(input_dim, output_dim, hidden=1024, layers=4, dropout=0.0)
+   110:         self.logprec = _HSRNet(input_dim, output_dim, hidden=1024, layers=4, dropout=0.0)
+   111:         # Epoch tracking for the MSE -> NLL warm-up (reference: first epochs/3).
+   112:         self._epoch = 0
+   113:         try:
+   114:             # reference switches at epoch < epochs/3 (0-indexed) -> ceil MSE epochs
+   115:             self._warmup = max(1, math.ceil(int(os.environ.get('NUM_EPOCHS', 30)) / 3))
+   116:         except Exception:
+   117:             self._warmup = 1
+   118:         self._last_mean = None
+   119:         self._last_logprec = None
+   120: 
+   121:     def train(self, mode=True):
+   122:         # The trainer calls model.train() exactly once at the start of each epoch
+   123:         # (model.eval() only runs every EVAL_INTERVAL epochs, so a False->True edge
+   124:         # is unreliable). Count every train(True) call as one epoch.
+   125:         if mode:
+   126:             self._epoch += 1
+   127:         return super().train(mode)
+   128: 
+   129:     def forward(self, x):
+   130:         mu = self.mean(x)
+   131:         logprec = torch.clamp(self.logprec(x), min=-10.0, max=10.0)
+   132:         self._last_mean = mu
+   133:         self._last_logprec = logprec
+   134:         return mu  # inference / metrics use the mean
+   135: 
+   136:     def hsr_loss(self, mu, logprec, target):
+   137:         if self._epoch <= self._warmup:           # MSE warm-up (first 1/3)
+   138:             return ((target - mu) ** 2).mean()
+   139:         prec = torch.exp(logprec)                 # tau
+   140:         nll = (prec * (target - mu) ** 2 - logprec).mean()
+   141:         return torch.clamp(nll, min=-1e5, max=1e5)
+   142: 
+   143: 
+   144: # --- inject the HSR objective by overriding the trainer's MSELoss ------------
+   145: # Subclass the canonical MSELoss (torch.nn.modules.loss), not nn.MSELoss, which
+   146: # another baseline's edit may have rebound when all baselines are imported into
+   147: # one process (e.g. budget_check.py).
+   148: _OrigMSELoss = torch.nn.modules.loss.MSELoss
+   149: 
+   150: class _HSRMSELossShim(_OrigMSELoss):
+   151:     _active_model = None
+   152: 
+   153:     def forward(self, predictions, target):
+   154:         m = _HSRMSELossShim._active_model
+   155:         if m is not None and getattr(m, '_last_logprec', None) is not None \
+   156:            and m._last_mean is predictions:
+   157:             return m.hsr_loss(m._last_mean, m._last_logprec, target)
+   158:         return super().forward(predictions, target)
+   159: 
+   160: nn.MSELoss = _HSRMSELossShim
+   161: 
+   162: _OrigCustomInit = Custom.__init__
+   163: 
+   164: def _patched_init(self, input_dim, output_dim):
+   165:     _OrigCustomInit(self, input_dim, output_dim)
+   166:     _HSRMSELossShim._active_model = self
    167: 
-   168: nn.MSELoss = _HSRMSELossShim
-   169: 
-   170: _OrigCustomInit = Custom.__init__
-   171: 
-   172: def _patched_init(self, input_dim, output_dim):
-   173:     _OrigCustomInit(self, input_dim, output_dim)
-   174:     _HSRMSELossShim._active_model = self
-   175: 
-   176: Custom.__init__ = _patched_init
-   177: # ================================================================
-   178: # END EDITABLE REGION
-   179: # ================================================================
+   168: Custom.__init__ = _patched_init
+   169: # ================================================================
+   170: # END EDITABLE REGION
+   171: # ================================================================
 
-Lines 231–233:
-   228:     weight_decay = float(os.environ.get('WEIGHT_DECAY', 1e-5))
-   229:     eval_interval = int(os.environ.get('EVAL_INTERVAL', 1))
-   230:     patience = 10
-   231:     # CONFIG_OVERRIDES: override training hyperparameters for your method.
-   232:     # Allowed keys: learning_rate, weight_decay, patience.
-   233:     CONFIG_OVERRIDES = {}
-   234: 
-   235:     # Apply per-method hyperparameter overrides (fixed infrastructure)
-   236:     for _k, _v in CONFIG_OVERRIDES.items():
+Lines 223–225:
+   220:     weight_decay = float(os.environ.get('WEIGHT_DECAY', 1e-5))
+   221:     eval_interval = int(os.environ.get('EVAL_INTERVAL', 1))
+   222:     patience = 10
+   223:     # CONFIG_OVERRIDES: override training hyperparameters for your method.
+   224:     # Allowed keys: learning_rate, weight_decay, patience.
+   225:     CONFIG_OVERRIDES = {}
+   226: 
+   227:     # Apply per-method hyperparameter overrides (fixed infrastructure)
+   228:     for _k, _v in CONFIG_OVERRIDES.items():
 ```
 
 

@@ -1,6 +1,6 @@
 {
   "base_image": "pytorch/pytorch:2.5.1-cuda12.1-cudnn9-devel",
-  "host_data_prepare_requirements": ["xarray", "netCDF4", "huggingface_hub", "numpy"],
+  "host_data_prepare_requirements": ["xarray", "netCDF4", "huggingface_hub"],
   "data_deps": [
     {
       "name": "climsim",
@@ -11,9 +11,11 @@
         "{data_root}/ClimSim/processed/train_inputs.npy",
         "{data_root}/ClimSim/processed/train_outputs.npy",
         "{data_root}/ClimSim/processed/val_inputs.npy",
-        "{data_root}/ClimSim/processed/val_outputs.npy"
+        "{data_root}/ClimSim/processed/val_outputs.npy",
+        "{data_root}/ClimSim/processed/test_inputs.npy",
+        "{data_root}/ClimSim/processed/test_outputs.npy"
       ],
-      "description": "Three months of E3SM-MMF low-res .nc downloaded from LEAP/ClimSim_low-res, converted to processed train/val .npy arrays."
+      "description": "Three months of E3SM-MMF low-res .nc downloaded from LEAP/ClimSim_low-res, pooled and shuffled into an in-distribution train/val/test split of processed .npy arrays."
     }
   ],
   "install_cmds": [

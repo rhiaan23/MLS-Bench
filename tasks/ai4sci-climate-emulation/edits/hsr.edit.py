@@ -1,103 +1,100 @@
 """Heteroskedastic Regression (HSR) baseline for ai4sci-climate-emulation.
 
-Paper-faithful HSR: ONE shared MLP backbone with TWO output heads — one
-predicts the mean, the other predicts the log-variance per output dim.
-Trained jointly with Gaussian negative-log-likelihood (Nix & Weigend 1994):
-    NLL = 0.5 * (log_var + (y - mu)^2 * exp(-log_var))
-The NLL term is auto-injected at training time via a forward-time hook that
-stashes log_var on the module; the trainer's MSELoss is replaced by the
-embedded NLL when ``self.is_hsr`` is True (we override ``forward`` so the
-trainer's loss(predictions, targets) becomes the NLL surrogate).
+Faithful to the ClimSim reference HSR, Yu et al. NeurIPS 2023 D&B,
+`baseline_models/HSR/training/hsr.py` + `hpo.py` (final config):
+  - TWO SEPARATE MLPs: a mean network and a log-precision network, each
+    hidden_dims=1024, layers=4, dropout=0, block = Linear -> LayerNorm ->
+    Dropout -> ReLU, with a linear output layer.
+  - Gaussian NLL with precision tau = exp(logprec):
+        loss = mean[ tau * (y - mu)^2 - logprec ]
+    (i.e. -2x Gaussian log-likelihood up to a constant), clipped to +-1e5.
+  - MSE warm-up for the first 1/3 of training epochs (reference: epochs/3),
+    then switch to the NLL. Here epochs come from the task budget (NUM_EPOCHS).
+  - Inference returns only the mean (ClimSim reports metrics on the mean).
 
-Inference returns only the mean (matches ClimSim evaluation protocol).
-This single-backbone twin-head design follows ClimSim's HSR baseline
-description (Yu et al., NeurIPS 2023 D&B Sec. 4) and the original
-Nix & Weigend (1994) heteroskedastic NN.
+I/O adapted to this task's 556-dim input / 368-dim output. The NLL/warm-up are
+injected by overriding the trainer's MSELoss; optimizer/LR/batch are the task's
+fixed unified budget (AdamW + cosine).
+
+Reference: Yu et al., "ClimSim..." (NeurIPS 2023 D&B), HSR baseline;
+Nix & Weigend (1994), heteroskedastic NN.
 """
 
 _FILE = "ClimSim/custom_emulator.py"
 
 _CONTENT = """\
-class _HSRBlock(nn.Module):
-    \"\"\"Shared-backbone block: Linear + LayerNorm + Dropout + ReLU.\"\"\"
-    def __init__(self, in_dim, out_dim, dropout=0.1):
+class _HSRNet(nn.Module):
+    \"\"\"One MLP head: `layers` x (Linear -> LayerNorm -> Dropout -> ReLU) + Linear.\"\"\"
+    def __init__(self, in_dim, out_dim, hidden=1024, layers=4, dropout=0.0):
         super().__init__()
-        self.net = nn.Sequential(
-            nn.Linear(in_dim, out_dim),
-            nn.LayerNorm(out_dim),
-            nn.Dropout(p=dropout),
-            nn.ReLU(),
-        )
+        blocks = []
+        prev = in_dim
+        for _ in range(layers):
+            blocks += [nn.Linear(prev, hidden), nn.LayerNorm(hidden), nn.Dropout(dropout), nn.ReLU()]
+            prev = hidden
+        blocks.append(nn.Linear(prev, out_dim))
+        self.net = nn.Sequential(*blocks)
 
     def forward(self, x):
         return self.net(x)
 
 
 class Custom(nn.Module):
-    \"\"\"Heteroskedastic Regression: single shared backbone + twin heads (mu, log_var).
-
-    Trained with Gaussian NLL on (mu, log_var). At inference time only mu is
-    returned, matching the ClimSim evaluation protocol where reported metrics
-    are computed against the predicted mean.
-    \"\"\"
+    \"\"\"Heteroskedastic regression: separate mean and log-precision networks.\"\"\"
 
     def __init__(self, input_dim, output_dim):
         super().__init__()
-        hidden = 768
-        n_layers = 5
-
-        # Single shared backbone (one set of weights — paper-faithful)
-        layers = []
-        for i in range(n_layers):
-            layers.append(_HSRBlock(
-                input_dim if i == 0 else hidden, hidden, dropout=0.1
-            ))
-        self.backbone = nn.Sequential(*layers)
-
-        # Twin output heads — both branch off the SAME backbone activation
-        self.head_mean = nn.Linear(hidden, output_dim)
-        self.head_logvar = nn.Linear(hidden, output_dim)
-
-        # Stash for the loss-replacement override
-        self._last_logvar = None
+        self.input_dim = input_dim
+        self.output_dim = output_dim
+        self.mean = _HSRNet(input_dim, output_dim, hidden=1024, layers=4, dropout=0.0)
+        self.logprec = _HSRNet(input_dim, output_dim, hidden=1024, layers=4, dropout=0.0)
+        # Epoch tracking for the MSE -> NLL warm-up (reference: first epochs/3).
+        self._epoch = 0
+        try:
+            # reference switches at epoch < epochs/3 (0-indexed) -> ceil MSE epochs
+            self._warmup = max(1, math.ceil(int(os.environ.get('NUM_EPOCHS', 30)) / 3))
+        except Exception:
+            self._warmup = 1
         self._last_mean = None
+        self._last_logprec = None
+
+    def train(self, mode=True):
+        # The trainer calls model.train() exactly once at the start of each epoch
+        # (model.eval() only runs every EVAL_INTERVAL epochs, so a False->True edge
+        # is unreliable). Count every train(True) call as one epoch.
+        if mode:
+            self._epoch += 1
+        return super().train(mode)
 
     def forward(self, x):
-        h = self.backbone(x)
-        mu = self.head_mean(h)
-        log_var = self.head_logvar(h)
-        # Numerical stability: clamp log-variance into a sane range
-        log_var = torch.clamp(log_var, min=-10.0, max=10.0)
-        # Stash for the NLL surrogate (used during training)
+        mu = self.mean(x)
+        logprec = torch.clamp(self.logprec(x), min=-10.0, max=10.0)
         self._last_mean = mu
-        self._last_logvar = log_var
-        # Return mean for downstream metric computation (NMSE/R2/RMSE on mu)
-        return mu
+        self._last_logprec = logprec
+        return mu  # inference / metrics use the mean
 
-    def gaussian_nll(self, mu, log_var, target):
-        \"\"\"Per-element Gaussian NLL averaged over batch and dims.\"\"\"
-        # 0.5 * (log_var + (y-mu)^2 * exp(-log_var)) [+ const]
-        precision = torch.exp(-log_var)
-        return 0.5 * (log_var + (target - mu) ** 2 * precision).mean()
+    def hsr_loss(self, mu, logprec, target):
+        if self._epoch <= self._warmup:           # MSE warm-up (first 1/3)
+            return ((target - mu) ** 2).mean()
+        prec = torch.exp(logprec)                 # tau
+        nll = (prec * (target - mu) ** 2 - logprec).mean()
+        return torch.clamp(nll, min=-1e5, max=1e5)
 
 
-# ---------------------------------------------------------------------------
-# Loss-replacement: monkey-patch nn.MSELoss so the trainer's
-# ``criterion(predictions, targets)`` uses the Gaussian NLL on the model's
-# stashed (mu, log_var) when the active model is a heteroskedastic Custom.
-# This keeps the editable-region diff minimal (no trainer changes) while
-# producing the paper-faithful NLL training objective.
-# ---------------------------------------------------------------------------
-_OrigMSELoss = nn.MSELoss
+# --- inject the HSR objective by overriding the trainer's MSELoss ------------
+# Subclass the canonical MSELoss (torch.nn.modules.loss), not nn.MSELoss, which
+# another baseline's edit may have rebound when all baselines are imported into
+# one process (e.g. budget_check.py).
+_OrigMSELoss = torch.nn.modules.loss.MSELoss
 
 class _HSRMSELossShim(_OrigMSELoss):
-    _active_model = None  # set after model construction below
+    _active_model = None
 
     def forward(self, predictions, target):
         m = _HSRMSELossShim._active_model
-        if m is not None and getattr(m, '_last_logvar', None) is not None \\
+        if m is not None and getattr(m, '_last_logprec', None) is not None \\
            and m._last_mean is predictions:
-            return m.gaussian_nll(m._last_mean, m._last_logvar, target)
+            return m.hsr_loss(m._last_mean, m._last_logprec, target)
         return super().forward(predictions, target)
 
 nn.MSELoss = _HSRMSELossShim
