@@ -53,7 +53,7 @@ class ClimSimDataset(Dataset):
         self.inp_std = np.load(os.path.join(data_dir, 'inp_std.npy'))
         self.out_mean = np.load(os.path.join(data_dir, 'out_mean.npy'))
         self.out_std = np.load(os.path.join(data_dir, 'out_std.npy'))
-        self.inputs = (self.inputs - self.inp_mean) / self.inp_std
+        self.inputs = np.clip((self.inputs - self.inp_mean) / self.inp_std, -10.0, 10.0)
         self.outputs = (self.outputs - self.out_mean) / self.out_std
 
         # Adjust dimensions if needed
@@ -187,33 +187,26 @@ if __name__ == '__main__':
     os.makedirs(output_dir, exist_ok=True)
 
     # ── Load Data ──
-    # Train/val/test split:
-    #   - train: months 0001-02..03 (used for SGD)
-    #   - val:   first half of held-out month 0001-07 (early-stopping & model selection)
-    #   - test:  second half of held-out month 0001-07 (final reported metrics)
-    # The test half is NEVER touched during training — strict held-out evaluation.
-    # If a true `test_inputs.npy` is present on disk we use it instead of splitting.
+    # Train/val/test split (fixed infrastructure, prepared by prepare_data.py):
+    #   ClimSim-style temporal holdout — train = simulation year 1, val/test =
+    #   year 2 (interleaved). Both span a full annual cycle, so it is an
+    #   in-distribution temporal generalization test, not cross-season extrapolation.
+    #   - train = SGD; val = early-stopping & model selection (not final metrics)
+    #   - test  = held-out, reported metrics (never touched during training)
     print(f"Loading data from {data_dir}...")
     train_dataset = ClimSimDataset(data_dir, split='train')
 
-    if os.path.exists(os.path.join(data_dir, 'test_inputs.npy')):
-        val_dataset = ClimSimDataset(data_dir, split='val')
-        test_dataset = ClimSimDataset(data_dir, split='test')
-    else:
-        held_out = ClimSimDataset(data_dir, split='val')
-        n_held = len(held_out)
-        if n_held < 2:
-            raise RuntimeError(
-                f"Held-out split has only {n_held} samples; cannot derive a test set. "
-                "Re-run preprocessing to produce a non-empty val split."
-            )
-        # Deterministic temporally-contiguous split: first half=val, second half=test
-        # (NEVER fallback to train, that would leak training data into evaluation)
-        split_idx = n_held // 2
-        val_indices = list(range(0, split_idx))
-        test_indices = list(range(split_idx, n_held))
-        val_dataset = Subset(held_out, val_indices)
-        test_dataset = Subset(held_out, test_indices)
+    # prepare_data.py always emits an explicit, independent test split (year-2
+    # odd timesteps). If it is missing the data is stale (pre-temporal-holdout),
+    # so fail loudly rather than silently scoring on the wrong/old split.
+    if not os.path.exists(os.path.join(data_dir, 'test_inputs.npy')):
+        raise RuntimeError(
+            f"test_inputs.npy missing under {data_dir}: the prepared ClimSim data is "
+            "stale. Regenerate with vendor/data_scripts/ClimSim/prepare_data.py (and "
+            "rebuild the container image) so val/test are the year-2 timestep splits."
+        )
+    val_dataset = ClimSimDataset(data_dir, split='val')
+    test_dataset = ClimSimDataset(data_dir, split='test')
 
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True,
                               num_workers=4, pin_memory=True, drop_last=True)
@@ -238,7 +231,10 @@ if __name__ == '__main__':
     criterion = nn.MSELoss()
 
     # ── Training Loop (early stopping uses VAL only — test stays held-out) ──
-    best_val_loss = float('inf')
+    # Select the checkpoint by validation NMSE (the reported metric), not raw
+    # val MSE: under overfitting the two diverge (val MSE can stay flat while
+    # val NMSE rises), so val-NMSE selection picks the genuinely best model.
+    best_val_nmse = float('inf')
     patience_counter = 0
     t0 = time.time()
 
@@ -292,19 +288,19 @@ if __name__ == '__main__':
             print(f"TRAIN_METRICS: epoch={epoch}, train_loss={avg_train_loss:.6f}, "
                   f"val_loss={avg_val_loss:.6f}, nmse={nmse:.6f}, r2={r2:.4f}", flush=True)
 
-            if avg_val_loss < best_val_loss:
-                best_val_loss = avg_val_loss
+            if nmse < best_val_nmse:
+                best_val_nmse = nmse
                 patience_counter = 0
-                torch.save(model.state_dict(), os.path.join(output_dir, 'best_model.pt'))
+                torch.save(model.state_dict(), os.path.join(output_dir, f'best_model_{env_label}.pt'))
             else:
-                patience_counter += eval_interval
+                patience_counter += 1  # count evaluations, not epochs (budget-independent)
                 if patience_counter >= patience:
                     print(f"Early stopping at epoch {epoch} (patience={patience})")
                     break
 
     # ── Final Evaluation on the held-out TEST split ──
     print("\n=== Final Evaluation (held-out test split) ===")
-    model.load_state_dict(torch.load(os.path.join(output_dir, 'best_model.pt'),
+    model.load_state_dict(torch.load(os.path.join(output_dir, f'best_model_{env_label}.pt'),
                                      weights_only=True))
     model.eval()
     all_preds, all_targets = [], []

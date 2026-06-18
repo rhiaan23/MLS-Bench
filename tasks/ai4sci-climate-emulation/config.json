@@ -7,7 +7,7 @@
       "label": "short-30ep",
       "group": 1,
       "compute": 0.33,
-      "time": "02:00:00",
+      "time": "04:00:00",
       "package": "ClimSim"
     },
     {
@@ -15,7 +15,7 @@
       "label": "medium-100ep",
       "group": 1,
       "compute": 0.33,
-      "time": "03:00:00",
+      "time": "08:00:00",
       "package": "ClimSim"
     },
     {
@@ -23,7 +23,7 @@
       "label": "long-200ep",
       "group": 1,
       "compute": 0.33,
-      "time": "06:00:00",
+      "time": "16:00:00",
       "package": "ClimSim",
       "hidden": true
     }
