@@ -326,24 +326,37 @@ def cmd_guard(args: argparse.Namespace) -> int:
     # Instead, REMOVE such files before the eval so they cannot influence it
     # (e.g. shadow-import a package module), then continue. A task that
     # legitimately needs the agent to author new files sets allow_create=true.
+    #
+    # Only files under a guarded package prefix are cleaned — those are the only
+    # ones that can shadow-import a protected module; created files elsewhere are
+    # harmless and left untouched. Unlink uses the LITERAL workspace path, never
+    # _safe_join (which resolve()s symlinks): we must remove the created entry
+    # itself — never a symlink's *target* (which could be a manifest file) — and
+    # must not raise on a symlink that points outside the workspace.
     cleaned_created: list[str] = []
+    failed_clean: list[str] = []
     if not allow_create:
         for rel in sorted(workspace_files):
             rel_str = rel.as_posix()
             if rel_str in manifest:
                 continue
+            if not rel.parts or rel.parts[0] not in guarded_prefixes:
+                continue
             try:
-                _safe_join(workspace_root, rel_str).unlink()
+                (workspace_root / rel_str).unlink()
                 cleaned_created.append(rel_str)
-            except OSError:
-                pass
+            except (OSError, ValueError):
+                failed_clean.append(rel_str)
         if cleaned_created:
+            removed = set(cleaned_created)
             workspace_files = {p for p in workspace_files
-                               if p.as_posix() not in set(cleaned_created)}
+                               if p.as_posix() not in removed}
             workspace_rel_strs = {p.as_posix() for p in workspace_files}
+        if cleaned_created or failed_clean:
             # Debug breadcrumb only — NOT a violation.
+            lines = cleaned_created + [f"{p}  [unlink-failed]" for p in failed_clean]
             (violation_out.parent / "cleaned_created.txt").write_text(
-                "\n".join(cleaned_created) + "\n"
+                "\n".join(lines) + "\n"
             )
 
     # Disallowed deletion: anything in manifest under a guarded prefix that
