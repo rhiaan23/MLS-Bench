@@ -317,14 +317,34 @@ def cmd_guard(args: argparse.Namespace) -> int:
     guarded_prefixes = {Path(f).parts[0] for f in editable if f}
     guarded_prefixes |= {Path(f).parts[0] for f in manifest if f}
 
-    # Disallowed creation: anything in workspace that is NOT in the manifest
-    # (= agent created it post-start).
+    # Newly-created files (present in the workspace, absent from the render-time
+    # manifest) are NOT tampering. The anti-cheat surface this guard protects is
+    # *modification* or *deletion* of the fixed baseline (scorer/tests/data/model
+    # source) — handled below. A brand-new file is, at worst, agent scratch
+    # (an experiment script, a `*.bak`, a `test_*.py`); hard-failing the whole
+    # run for it (reward 0, eval never runs) zeroes otherwise-correct solutions.
+    # Instead, REMOVE such files before the eval so they cannot influence it
+    # (e.g. shadow-import a package module), then continue. A task that
+    # legitimately needs the agent to author new files sets allow_create=true.
+    cleaned_created: list[str] = []
     if not allow_create:
         for rel in sorted(workspace_files):
             rel_str = rel.as_posix()
             if rel_str in manifest:
                 continue
-            violations.append(f"created new file (allow_create=false): {rel_str}")
+            try:
+                _safe_join(workspace_root, rel_str).unlink()
+                cleaned_created.append(rel_str)
+            except OSError:
+                pass
+        if cleaned_created:
+            workspace_files = {p for p in workspace_files
+                               if p.as_posix() not in set(cleaned_created)}
+            workspace_rel_strs = {p.as_posix() for p in workspace_files}
+            # Debug breadcrumb only — NOT a violation.
+            (violation_out.parent / "cleaned_created.txt").write_text(
+                "\n".join(cleaned_created) + "\n"
+            )
 
     # Disallowed deletion: anything in manifest under a guarded prefix that
     # is gone from workspace.
