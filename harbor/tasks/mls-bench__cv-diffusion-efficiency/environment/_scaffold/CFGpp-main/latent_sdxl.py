@@ -37,7 +37,16 @@ class SDXL():
                  device='cuda'):
 
         self.device = device
-        pipe = StableDiffusionXLPipeline.from_pretrained(model_key, torch_dtype=dtype).to(device)
+        # Offline image ships SDXL unet as safetensors (often only the fp16
+        # variant) — the default from_pretrained looks for diffusion_pytorch_
+        # model.bin and dies (OSError: no .bin found). Prefer the fp16 variant
+        # safetensors, fall back to standard safetensors.
+        try:
+            pipe = StableDiffusionXLPipeline.from_pretrained(
+                model_key, torch_dtype=dtype, variant="fp16", use_safetensors=True).to(device)
+        except Exception:
+            pipe = StableDiffusionXLPipeline.from_pretrained(
+                model_key, torch_dtype=dtype, use_safetensors=True).to(device)
         self.dtype = dtype
 
         # avoid overflow in float16
