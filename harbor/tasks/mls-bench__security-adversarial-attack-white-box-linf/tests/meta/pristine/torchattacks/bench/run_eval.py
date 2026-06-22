@@ -2,6 +2,7 @@
 
 import argparse
 import copy
+import os
 import random
 
 import numpy as np
@@ -40,12 +41,23 @@ def load_dataset(name: str, data_dir: str) -> tuple[torch.utils.data.Dataset, in
 
 def load_model(dataset: str, arch: str, device: torch.device) -> torch.nn.Module:
     entry = f"{dataset}_{arch}"
-    model = torch.hub.load(
-        "chenyaofo/pytorch-cifar-models",
-        entry,
-        pretrained=True,
-        trust_repo=True,
-    )
+    hub_root = os.path.join(os.environ.get("TORCH_HOME", "/data/torch_cache"), "hub")
+    local_repo = os.path.join(hub_root, "chenyaofo_pytorch-cifar-models_master")
+    if os.path.isdir(local_repo):
+        model = torch.hub.load(
+            local_repo,
+            entry,
+            pretrained=True,
+            source="local",
+            trust_repo=True,
+        )
+    else:
+        model = torch.hub.load(
+            "chenyaofo/pytorch-cifar-models",
+            entry,
+            pretrained=True,
+            trust_repo=True,
+        )
     return model.to(device).eval()
 
 
