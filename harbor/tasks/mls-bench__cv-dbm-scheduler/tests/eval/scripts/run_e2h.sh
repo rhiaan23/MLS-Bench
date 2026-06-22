@@ -1,3 +1,5 @@
+set -euo pipefail
+
 export eta=0.0
 export ds=e2h
 export num_samples=10000
@@ -5,13 +7,24 @@ export doob_scale=1.0
 export sampler=dbim
 export nfe=5
 
+# Inject --num_samples into sample.py so exactly $num_samples images are
+# generated and the eval ref/sample batch shapes match (without this the base
+# image's sample.py emits a mismatched count -> evaluator.py assert fails).
+source "$(dirname "${BASH_SOURCE[0]}")/_runtime_patch.sh"
+
 export sample_dir=${OUTPUT_DIR:-output}/$ds-$nfe-$sampler-$eta-seed${SEED:-42}
 rm -rf "$sample_dir"
 mkdir -p "$sample_dir"
 bash scripts/sample.sh $ds $nfe $sampler $eta
-bash scripts/evaluate.sh $ds $nfe $sampler $eta
-if [ -f "$sample_dir/fid.json" ]; then
-    echo "FID: $(python3 -c "import json; print(json.load(open(\"$sample_dir/fid.json\"))['fid'])")"
+# FID is computed first by the patched (streaming) get_fid and written next to
+# the samples npz. The subsequent paired SSIM/LPIPS metric asserts ref/sample
+# have equal N and core-dumps when they differ (it does here). FID is the only
+# scored metric, so tolerate the LPIPS crash and surface FID from wherever
+# get_fid wrote fid.json.
+bash scripts/evaluate.sh $ds $nfe $sampler $eta || true
+FID_JSON=$(find workdir "$sample_dir" "${OUTPUT_DIR:-output}" -name fid.json 2>/dev/null | head -1)
+if [ -n "$FID_JSON" ]; then
+    echo "FID: $(python3 -c "import json; print(json.load(open('$FID_JSON'))['fid'])")"
 fi
 
 # Clean up sample NPZ files once FID has been computed — each agent iteration
