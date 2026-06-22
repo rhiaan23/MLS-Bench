@@ -407,7 +407,24 @@ def main():
         model.parameters(), lr=args.lr,
         momentum=args.momentum, weight_decay=args.weight_decay,
     )
-    scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs)
+    # VGG16BN diverges at lr=0.1 on CIFAR-100 without warmup: logits saturate
+    # from the first epochs (train_loss pinned at ln(num_classes)=4.605, ~1% acc)
+    # because VGG has no residual path to stabilize early training. Add a short
+    # linear LR warmup ONLY for VGG so the already-converging archs (resnet56,
+    # mobilenetv2) keep the exact original cosine schedule untouched.
+    if args.arch.startswith("vgg"):
+        import math as _math
+        _warmup = 5
+
+        def _vgg_lr_factor(epoch, _w=_warmup, _E=args.epochs):
+            if epoch < _w:
+                return float(epoch + 1) / float(_w)
+            progress = float(epoch - _w) / float(max(1, _E - _w))
+            return 0.5 * (1.0 + _math.cos(_math.pi * progress))
+
+        scheduler = optim.lr_scheduler.LambdaLR(optimizer, _vgg_lr_factor)
+    else:
+        scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs)
 
     # Config for regularization
     config = {
