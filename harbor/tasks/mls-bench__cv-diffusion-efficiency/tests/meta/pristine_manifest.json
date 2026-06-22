@@ -20,7 +20,7 @@
   "CFGpp-main/examples/text_to_img.py": "2acba2bcb356a3843b1230ced41d322f18693e737d51556babe4ad4559119b36",
   "CFGpp-main/examples/text_to_mscoco.py": "525ab543e9cb46d8e7c26ab571bacaec510b6582a4ce9ec9624fe90321c46eb5",
   "CFGpp-main/latent_diffusion.py": "34116fc5fde571522d3cfd7c3bb545da06f2841daefa9347fbf99ed925654a37",
-  "CFGpp-main/latent_sdxl.py": "8a9c9c125b757f0ff4b57e46703a0587a30de5f5ab29c1a54cde22459da6df0e",
+  "CFGpp-main/latent_sdxl.py": "20dca6c157872006303b7b67faeaab56f31f4f2b256fd259fdead3156eb8efe1",
   "CFGpp-main/utils/calculate_metrics.py": "38e5e4afbccddecdfcbc823581f9d596cccea57cbe580925f3e0c7dec413486b",
   "CFGpp-main/utils/callback_util.py": "6164a7f5984d15eb986e97fcdec9d288aee63fc999d62f381d76c54c286b0476",
   "CFGpp-main/utils/img_util.py": "7eb22862501ffa598eedf23b7dedb6035e05cc0e819b488e7a329f533b672f8e",
