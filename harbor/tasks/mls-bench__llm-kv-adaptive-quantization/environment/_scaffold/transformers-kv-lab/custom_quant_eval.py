@@ -912,12 +912,6 @@ def maybe_sync():
         torch.cuda.synchronize()
 
 
-def simulate_metrics(quantizer: AdaptiveKVQuantizer, workload_name: str, budget_bits: int) -> dict:
-    efficiency = estimate_policy_efficiency(quantizer, workload_name, budget_bits, num_layers=36)
-    compression_gain = 1.0 - efficiency["effective_kv_bits"] / FP_BITS
-    return {"final_score": 50.0 + 10.0 * compression_gain, **efficiency}
-
-
 def run_real_eval(args):
     import time
 
@@ -982,26 +976,8 @@ def main():
     parser.add_argument("--model-id", default=os.environ.get("MODEL_ID", "Qwen/Qwen2.5-3B-Instruct"))
     parser.add_argument("--seed", type=int, default=7)
     parser.add_argument("--cpu", action="store_true")
-    parser.add_argument("--mock", action="store_true")
     parser.add_argument("--max-examples", type=int, default=DEFAULT_MAX_EXAMPLES)
     args = parser.parse_args()
-
-    quantizer = AdaptiveKVQuantizer()
-    if args.mock:
-        import time
-
-        runtime_start = time.perf_counter()
-        metrics = simulate_metrics(quantizer, args.workload, args.budget_bits)
-        metrics["runtime_seconds"] = time.perf_counter() - runtime_start
-        maybe_write_output_artifacts(args.workload, {}, metrics)
-        print(
-            "TEST_METRICS: "
-            f"final_score={metrics['final_score']:.6f} "
-            f"effective_kv_bits={metrics['effective_kv_bits']:.6f} "
-            f"kv_compression_ratio={metrics['kv_compression_ratio']:.6f} "
-            f"runtime_seconds={metrics['runtime_seconds']:.6f}"
-        )
-        return
 
     run_real_eval(args)
 
