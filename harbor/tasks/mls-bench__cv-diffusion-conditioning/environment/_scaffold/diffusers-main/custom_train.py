@@ -361,6 +361,8 @@ def compute_fid(model, device, num_samples=2048, num_classes=10, num_steps=1000,
         _feat.get_reference_statistics = _patched_ref
         import cleanfid.fid as _fid_mod
         _fid_mod.get_reference_statistics = _patched_ref
+        _orig_fid_build = _fid_mod.build_feature_extractor
+        _fid_mod.build_feature_extractor = _patched_build
 
         print(f"  Computing FID on {len(os.listdir(merged_dir))} images...", flush=True)
         score = cleanfid.compute_fid(
@@ -372,6 +374,7 @@ def compute_fid(model, device, num_samples=2048, num_classes=10, num_steps=1000,
         _feat.build_feature_extractor = _orig_build
         _feat.get_reference_statistics = _orig_ref
         _fid_mod.get_reference_statistics = _orig_ref
+        _fid_mod.build_feature_extractor = _orig_fid_build
 
     # Clean up per-rank dir
     shutil.rmtree(gen_dir, ignore_errors=True)

@@ -244,6 +244,8 @@ def compute_fid(model, schedule, device, num_samples=2048, num_steps=1000,
         _feat.get_reference_statistics = _patched_ref
         import cleanfid.fid as _fid_mod
         _fid_mod.get_reference_statistics = _patched_ref
+        _orig_fid_build = _fid_mod.build_feature_extractor
+        _fid_mod.build_feature_extractor = _patched_build
 
         score = cleanfid.compute_fid(
             gen_dir, dataset_name="cifar10", dataset_res=32,
@@ -253,6 +255,7 @@ def compute_fid(model, schedule, device, num_samples=2048, num_steps=1000,
         _feat.build_feature_extractor = _orig_build
         _feat.get_reference_statistics = _orig_ref
         _fid_mod.get_reference_statistics = _orig_ref
+        _fid_mod.build_feature_extractor = _orig_fid_build
 
         shutil.rmtree(gen_dir)
 
