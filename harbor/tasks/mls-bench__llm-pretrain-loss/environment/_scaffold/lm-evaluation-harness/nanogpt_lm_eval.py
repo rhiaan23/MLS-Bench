@@ -15,6 +15,36 @@ import lm_eval
 from lm_eval.api.model import LM
 
 
+def _patch_dataset_aliases():
+    """Allow offline caches built with legacy dataset ids to satisfy lm-eval."""
+    try:
+        import datasets
+        import datasets.load as datasets_load
+    except Exception:
+        return
+
+    original = datasets.load_dataset
+
+    def load_dataset_with_alias(path, *args, **kwargs):
+        if path == "allenai/winogrande":
+            try:
+                return original(path, *args, **kwargs)
+            except Exception as exc:
+                msg = str(exc).lower()
+                if "offline" not in msg and "couldn't reach" not in msg and "could not reach" not in msg:
+                    raise
+                print(
+                    "Retrying WinoGrande with legacy dataset id 'winogrande' "
+                    "for offline cache compatibility.",
+                    flush=True,
+                )
+                return original("winogrande", *args, **kwargs)
+        return original(path, *args, **kwargs)
+
+    datasets.load_dataset = load_dataset_with_alias
+    datasets_load.load_dataset = load_dataset_with_alias
+
+
 class NanoGPTLM(LM):
     """lm-evaluation-harness wrapper for nanoGPT models."""
 
@@ -186,21 +216,34 @@ def main():
     task_list = [t.strip() for t in args.tasks.split(",")]
     print(f"Running tasks: {task_list} (num_fewshot={args.num_fewshot})")
 
-    results = lm_eval.simple_evaluate(
-        model=model,
-        tasks=task_list,
-        num_fewshot=args.num_fewshot,
-        batch_size=args.batch_size,
-    )
+    _patch_dataset_aliases()
 
-    # Print per-task results
     metrics = {}
-    for task_name, task_results in results["results"].items():
-        # Prefer acc_norm if available (e.g. hellaswag), else acc
-        acc = task_results.get("acc_norm,none", task_results.get("acc,none"))
-        if acc is not None:
-            metrics[task_name] = round(acc * 100, 2)
-            print(f"{task_name}: {acc:.4f} ({acc*100:.2f}%)")
+    for task_name in task_list:
+        try:
+            results = lm_eval.simple_evaluate(
+                model=model,
+                tasks=[task_name],
+                num_fewshot=args.num_fewshot,
+                batch_size=args.batch_size,
+            )
+        except Exception as exc:
+            # Keep scoring conservative but do not discard other lm-eval tasks
+            # because one optional offline dataset cache is unavailable.
+            metrics[task_name] = 0.0
+            print(
+                f"{task_name}: evaluation failed ({type(exc).__name__}: {exc}); "
+                "recording 0.00%",
+                flush=True,
+            )
+            continue
+
+        for result_name, task_results in results["results"].items():
+            # Prefer acc_norm if available (e.g. hellaswag), else acc
+            acc = task_results.get("acc_norm,none", task_results.get("acc,none"))
+            if acc is not None:
+                metrics[result_name] = round(acc * 100, 2)
+                print(f"{result_name}: {acc:.4f} ({acc*100:.2f}%)")
 
     # Print TEST_METRICS line for parser
     metrics_str = ", ".join(f"{k}={v}" for k, v in metrics.items())
