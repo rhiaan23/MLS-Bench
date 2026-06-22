@@ -3991,7 +3991,7 @@
   "lm-evaluation-harness/lm_eval/tasks/xwinograd/xwinograd_zh.yaml": "3807fce1131bd016c57370c6b418a3fbce051b0283c071fd77f78645737f2b46",
   "lm-evaluation-harness/lm_eval/utils.py": "31524c4be78e1b0445b79d7a7ef952dd3207e10180a910420e1e4670c78816b9",
   "lm-evaluation-harness/mypy.ini": "1f1bfadcacad4ac6ad0a4195080be049a6dc269add92294f07c0ed3e9e2d8bb2",
-  "lm-evaluation-harness/nanogpt_lm_eval.py": "c4c8bd4e8bf32d2e8e270405f10b0e197295e5dd46d5ed674d5af47ea603a658",
+  "lm-evaluation-harness/nanogpt_lm_eval.py": "3d1eebf5e1b9b9deaf010e8d3372b7c65d81e8ef5b6463b4394693190044126a",
   "lm-evaluation-harness/pile_statistics.json": "64e76b2254716935c911cff50c92ff72a9cc79a29b0427e14695f635b4f488f7",
   "lm-evaluation-harness/pyproject.toml": "b5bcfe9ccac6313bc77a3bf6afe0628c8123e1c537e78e2ba2f5d307bed215fd",
   "lm-evaluation-harness/requirements.txt": "0cac0e472eba3359aa79e9674ff11a5fd0484b9c465fc1cb774c30938edcc5d7",
