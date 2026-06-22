@@ -235,12 +235,20 @@ if evaluator_py.exists():
     n = 0
     sum_act = None
     sum_outer = None
+    _fid_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     with open_npz_array(npz_path, "arr_0") as reader:
         for batch in tqdm(reader.read_batches(evaluator.batch_size)):
             if MODE == "legacy_tensorflow":
                 batch_t = torch.from_numpy(batch.transpose([0, 3, 1, 2])).float()
             else:
                 batch_t = evaluator.resize_batch(batch)
+            # The feature extractor is built on CUDA (build_feature_extractor(..., torch.device("cuda")))
+            # and evaluator.model is the build_feature_extractor closure (a plain function, NOT an
+            # nn.Module — so it has no .parameters()). batch_t may be a CPU tensor (legacy_tensorflow
+            # branch, or a CPU resize_batch), which raises "Input type (torch.FloatTensor) and weight
+            # type (torch.cuda.FloatTensor)..." on the e2h/DIODE FID path when use_dataparallel is off
+            # (the default). Move batch_t onto the extractor's device (idempotent if already there).
+            batch_t = batch_t.to(_fid_device, non_blocking=True)
             pred, _ = evaluator.model(batch_t)
             act = pred.detach().cpu().numpy().reshape([pred.shape[0], -1]).astype(np.float64, copy=False)
             if sum_act is None:
