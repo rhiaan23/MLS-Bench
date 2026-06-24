@@ -39,6 +39,32 @@ mksudo "$LOGDIR"; mksudo /data
 # --- mlsbench must be importable (pure-python; heavy deps come from the image) -
 python -c "import mlsbench" 2>/dev/null || pip install -e "$REPO_DIR" >/dev/null 2>&1 || true
 
+# --- dataset staging -------------------------------------------------------- #
+# The frozen eval scripts load with download=False and pin EXACT roots per task
+# (cifar10/100 -> /data/cifar, fmnist -> /data/fmnist), so data MUST be staged
+# first. download=True is idempotent: on a warm /data it's an instant "already
+# downloaded and verified" no-op; on a cold /data it self-heals. When /data is
+# the shared dataset-cache mount, this also POPULATES the cache for every later
+# run and every future MLS climb. This replaces the old reliance on the agent
+# hand-running the download (which also staged fmnist under the wrong root).
+stage_datasets() {
+  mksudo /data/cifar; mksudo /data/fmnist
+  python - <<'PY'
+import sys
+try:
+    import torchvision as tv
+except Exception as e:
+    print(f"[data] torchvision import failed: {e}", file=sys.stderr); sys.exit(1)
+for name, root in (("CIFAR10", "/data/cifar"), ("CIFAR100", "/data/cifar"),
+                   ("FashionMNIST", "/data/fmnist")):
+    ds = getattr(tv.datasets, name)
+    for train in (True, False):
+        ds(root=root, train=train, download=True)   # idempotent; extracts/verifies
+    print(f"[data] {name} staged at {root}")
+print("[data] datasets ready")
+PY
+}
+
 # --- CLIMB_SMOKE: fast image-prebuild validation (bounded to 900s by the harness).
 # Prove the entrypoint RUNS in this image WITHOUT the full ~1hr verifier: import the
 # heavy stack, confirm the editable file compiles, run the (data-free) guard, and
@@ -60,6 +86,12 @@ py_compile.compile(sys.argv[1], doraise=True)   # editable file is valid python
 print("[smoke] torch+mlsbench import OK; editable file compiles:", sys.argv[1])
 PY
   ) || { echo "[sl_climb_entrypoint] SMOKE FAILED (image missing deps or file broken)" >&2; exit 1; }
+  # Warm the shared /data cache + exercise the real data-load path. The smoke used
+  # to skip data entirely, so a missing/half-extracted dataset only surfaced during
+  # a full run (RuntimeError: "Dataset not found or corrupted"). Best-effort here:
+  # never wedge the cheap scaffold on slow egress — the full eval path stages
+  # authoritatively. After the one-time seed this is an instant no-op.
+  stage_datasets || echo "[sl_climb_entrypoint] WARN: dataset stage incomplete in smoke (full run will retry)"
   python -I "$SCORER" guard --task-meta "$META" --pristine "$META/pristine" \
       --workspace "$WORKDIR" --violation-out "$LOGDIR/violation.txt" || true  # cheap, data-free
   python - "$RESULT" <<'PY'
@@ -94,6 +126,10 @@ if [ "$g" -eq 10 ]; then
   emit_fail 0 "edit-range violation"; exit 0
 fi
 [ "$g" -ne 0 ] && { echo "FATAL: guard rc=$g" >&2; exit 1; }
+
+# --- ensure datasets present (idempotent; self-heals a cold/half-extracted cache,
+# instant no-op on a warm one) before the frozen download=False loaders run ----- #
+stage_datasets || { echo "FATAL: dataset staging failed (datasets unreachable)" >&2; exit 1; }
 
 # --- official verifier: run all evals (visible + hidden) -------------------- #
 python -I "$SCORER" run-evals --task-meta "$META" --workspace "$WORKDIR" \
