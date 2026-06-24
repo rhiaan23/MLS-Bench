@@ -39,6 +39,37 @@ mksudo "$LOGDIR"; mksudo /data
 # --- mlsbench must be importable (pure-python; heavy deps come from the image) -
 python -c "import mlsbench" 2>/dev/null || pip install -e "$REPO_DIR" >/dev/null 2>&1 || true
 
+# --- CLIMB_SMOKE: fast image-prebuild validation (bounded to 900s by the harness).
+# Prove the entrypoint RUNS in this image WITHOUT the full ~1hr verifier: import the
+# heavy stack, confirm the editable file compiles, run the (data-free) guard, and
+# write result.json. No dataset download, no training. ----------------------------- #
+if [ "${CLIMB_SMOKE:-}" = "1" ]; then
+  echo "[sl_climb_entrypoint] CLIMB_SMOKE=1 — fast structural validation (no training)"
+  rm -rf "$WORKDIR" 2>/dev/null || sudo rm -rf "$WORKDIR"; mksudo "$WORKDIR"
+  cp -a "$TASKROOT/environment/_scaffold/." "$WORKDIR/"
+  EDIT_REL="$(python -I - "$META" <<'PY'
+import json,sys
+print(json.load(open(sys.argv[1]+"/config.json"))["files"][0]["filename"])
+PY
+)"
+  ( cd "$WORKDIR" && python - "$EDIT_REL" <<'PY'
+import sys, py_compile
+import torch        # noqa: F401 — prove the image carries the heavy stack
+import mlsbench      # noqa: F401
+py_compile.compile(sys.argv[1], doraise=True)   # editable file is valid python
+print("[smoke] torch+mlsbench import OK; editable file compiles:", sys.argv[1])
+PY
+  ) || { echo "[sl_climb_entrypoint] SMOKE FAILED (image missing deps or file broken)" >&2; exit 1; }
+  python -I "$SCORER" guard --task-meta "$META" --pristine "$META/pristine" \
+      --workspace "$WORKDIR" --violation-out "$LOGDIR/violation.txt" || true  # cheap, data-free
+  python - "$RESULT" <<'PY'
+import json,sys
+json.dump({"objective":0.0,"metrics":{"smoke":1.0}}, open(sys.argv[1],"w"))
+PY
+  echo "[sl_climb_entrypoint] CLIMB_SMOKE ok — image validated, result.json written"
+  exit 0
+fi
+
 # --- reconstruct /workspace from the (edited) scaffold ---------------------- #
 rm -rf "$WORKDIR" 2>/dev/null || sudo rm -rf "$WORKDIR"
 mksudo "$WORKDIR"
